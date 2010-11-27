@@ -26,24 +26,24 @@ Usage instructions
 ------------------
 
 0. Please run this script using:
-  ipython -pylab -wthread demo_pykinect.py
+		ipython -pylab -wthread demo_pykinect.py
 
 1. You should see an opengl window pop up with a preview of a point cloud. You can pan and 
   zoom with the mouse. Run the following commands:
-  - update()      # Grabs one frame from kinect and updates the point cloud
-  - update_on()   # Grabs frames from kinect on a thread - 3d Video! (might be slow!)
-  - update_off()  # Stops the update thread
+  	update()      # Grabs one frame from kinect and updates the point cloud
+  	update_on()   # Grabs frames from kinect on a thread - 3d Video! (might be slow!)
+  	update_off()  # Stops the update thread
   
 2. You can also use opencv:
-  - loopcv()      # Grab frames and display them as a cv image
-    (ctrl+c to break)
+  	loopcv()      # Grab frames and display them as a cv image
+   	(ctrl+c to break)
   
 3. You can also use matplotlib:
-  - imshow(depth)
+  	imshow(depth)
   
 4. Most importantly, you can reload any of the code without pausing or destroying your 
   python instance:
-  - %run -i demo_pykinect.py
+  	%run -i demo_pykinect.py
   
   Try changing some of the code, like the downsampling factor (search: downsampling)
   or the point size (search: GL_POINT_SIZE) and update the code without quitting python.
