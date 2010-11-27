@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from freenect import sync_get_depth as get_depth, sync_get_rgb as get_rgb
+from freenect import sync_get_depth_np as get_depth, sync_get_rgb_np as get_rgb
 import cv  
 import numpy as np
   
@@ -7,14 +7,14 @@ def doloop():
     global depth, rgb
     while True:
         # Get a fresh frame
-        depth, rgb = get_depth(), get_rgb()
+        (depth,_), (rgb,_) = get_depth(), get_rgb()
         
         # Build a two panel color image
         d3 = np.dstack((depth,depth,depth)).astype(np.uint8)
         da = np.hstack((d3,rgb))
         
         # Simple Downsample
-        cv.ShowImage('both',array2cv(da[::2,::2,::-1]))
+        cv.ShowImage('both',np.array(da[::2,::2,::-1]))
         cv.WaitKey(5)
         
 doloop()
