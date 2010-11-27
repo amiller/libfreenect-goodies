@@ -1,6 +1,8 @@
 import numpy as np
 from pclwindow import PCLWindow
-
+import expmap
+import scipy
+import scipy.optimize
 
 # Return a point cloud, an Nx3 array, made by projecting the kinet depth map 
 # through calibration / registration
@@ -68,19 +70,7 @@ def normal_compute(x,y,z):
       weights[m,n] = 1.0 - np.max(ww[ids[0]]/ww[ids[1]], ww[ids[0]]/ww[ids[2]])
     
   return normals, weights
-  
 
-def solvepose():
-	def err(x):
-		rot = np.array(rotmat)
-		rot[:3,:3] = expmap.axis2rot(x)
-		draw(rot)
-		return depthcost(d1, depthim)
-	global xs
-	global r1
-	r1 = r0 + (np.random.rand(3)*2-1)*0.2
-	#xs = scipy.optimize.fmin_powell(err, r1)
-	xs = scipy.optimize.fmin(err, r1)
 	
 # Color score
 def color_axis(normals):
@@ -90,35 +80,30 @@ def color_axis(normals):
   cx = [np.power(1.0 - c, 20) for c in cc]
   return [c * 0.8 + 0.2 for c in cx]
   
-def score(normals):
+def score(normals, weights):
   X,Y,Z = [normals[:,:,i] for i in range(3)]
   cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
-  return np.sum([np.power(1.0 - c, 20) for c in cc])
+  return np.sum([np.power(1.0 - c, 20)*weights for c in cc])
   
 def apply_rot(rot, xyz):
   flat = np.rollaxis(xyz,2).reshape((3,-1))
   xp = np.dot(rot, flat)
   return xp.transpose().reshape(xyz.shape)
-	
-# Build a cost function of the rotation based on the surface normals
-def make_error(normals, weights):
+  
+import mpl_toolkits.mplot3d.axes3d as mp3
+def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
+  rangex = np.arange(-0.6,0.6,0.06)
+  rangey = np.arange(-0.6,0.6,0.06)
   def err(x):
     rot = expmap.axis2rot(x)
     n = apply_rot(rot, normals)
     R,G,B = color_axis(n)
     update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
-    window.Refresh()
-    pylab.waitforbuttonpress(0.001)
-    #window.processPaintEvent(Skip())
+    #window.Refresh()
+    #pylab.waitforbuttonpress(0.001)
+    window.processPaintEvent(Skip())
     return score(n)
-  return err
-
-import mpl_toolkits.mplot3d.axes3d as mp3
-def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
-  rangex = np.arange(-0.3,0.3,0.03)
-  rangey = np.arange(-0.3,0.3,0.03)
   x,y = np.meshgrid(rangex, rangey)
-  err = make_error(normals, weights)
   z = [err(r0+np.array([xp,yp,0])) for xp in rangex for yp in rangey]
   z = np.reshape(z, (len(rangey),len(rangex)))
   fig = pylab.figure(1)
@@ -132,31 +117,40 @@ def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
 
   
   
-def optimize_normals(n, weights):
+def optimize_normals(normals, weights):
   # Optimize a cost function to find the rotation
-  pass
+  def err(x):
+    rot = expmap.axis2rot(x)
+    n = apply_rot(rot, normals)
+    R,G,B = color_axis(n)
+    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
+    window.Refresh()
+    pylab.waitforbuttonpress(0.001)
+    #window.processPaintEvent(Skip())
+    return -score(n, weights)
+  xs = scipy.optimize.fmin(err, [0.0,0.0,0])
+  return xs
   
       
 
 
 #depth, rgb = [x[1] for x in np.load('data/ceiling.npz').items()]
-rgb, depth = [x[1] for x in np.load('data/block1.npz').items()]
-v,u = np.mgrid[160:282,330:510]
-#rgb, depth = [x[1] for x in np.load('data/block2.npz').items()]
-#v,u = np.mgrid[231:371,264:434]
+#rgb, depth = [x[1] for x in np.load('data/block1.npz').items()]
+#v,u = np.mgrid[160:282,330:510]
+rgb, depth = [x[1] for x in np.load('data/block2.npz').items()]
+v,u = np.mgrid[231:371,264:434]
 #v,u = np.mgrid[:480,:640]
 x,y,z = project(depth[v,u], u, v)
 
 # sub sample
 if not 'window' in globals(): window = PCLWindow(size=(640,480))
-
-#n,weights = normal_compute(x,y,z)
+if not 'weights' in globals(): n,weights = normal_compute(x,y,z)
 #update(x,y,z,u,v,rgb)
 #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 
 update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
 R,G,B = color_axis(n)
-#update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
+update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
 import cv
 class Skip():
   def Skip(self):
