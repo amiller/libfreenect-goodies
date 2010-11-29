@@ -3,6 +3,9 @@ from pclwindow import PCLWindow
 import expmap
 import scipy
 import scipy.optimize
+from OpenGL.GL import *
+
+if not 'window' in globals(): window = PCLWindow(size=(640,480))
 
 # Return a point cloud, an Nx3 array, made by projecting the kinet depth map 
 # through calibration / registration
@@ -13,19 +16,25 @@ def project(depth, u, v):
   Y = (v - 240.0) * Z / 590.0
   return X,Y,Z
   
-def update(X,Y,Z,UV=None,rgb=None,COLOR=None):
+def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   global window
   xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
   mask = Z.flatten()<10
   xyz = xyz[mask,:]
   window.XYZ = xyz
   
-  if UV:
+  global axes_rotation
+  axes_rotation = np.eye(4)
+  if not AXES is None:
+    # Rotate the axes
+    axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
+  
+  if not UV is None:
     U,V = UV
     uv = np.vstack((U.flatten(),V.flatten())).transpose()
     uv = uv[mask,:]
     
-  if COLOR:
+  if not COLOR is None:
     R,G,B,A = COLOR
     color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
     color = color[mask,:]
@@ -69,21 +78,65 @@ def normal_compute(x,y,z):
       ww = w*w
       weights[m,n] = 1.0 - np.max(ww[ids[0]]/ww[ids[1]], ww[ids[0]]/ww[ids[2]])
     
-  return normals, weights
+  return normals, np.power(weights,40)
 
-	
+axes_rotation = np.eye(4)
+@window.event
+def on_draw_axes():
+  # Draw some axes
+  glLineWidth(3)
+  glPushMatrix()
+  glMultMatrixf(axes_rotation.transpose())
+  glScalef(1.5,1.5,1.5)
+  glBegin(GL_LINES)
+  glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+  glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+  glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+  glEnd()
+  glPopMatrix()
+
 # Color score
-def color_axis(normals):
+def color_axis(normals,d=0.1):
   #n = np.log(np.power(normals,40))
   X,Y,Z = [normals[:,:,i] for i in range(3)]
   cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
-  cx = [np.power(1.0 - c, 20) for c in cc]
+  cx = [np.max((1.0-(c/d*c/d),0*c),0) for c in cc]
   return [c * 0.8 + 0.2 for c in cx]
   
+def mean_shift_optimize(normals, weights, r0=np.array([0,0,0])):
+  # Don't worry about convergence for now!
+  mat = expmap.axis2rot(r0)
+  d = 0.2 # E(p) = (x/d)^2 + (y/d)^2
+  perr = 0; derr = 10
+  iters = 0
+  while iters < 100 and (derr > 0.0001):
+    iters += 1
+    n = apply_rot(mat, normals)
+    X,Y,Z = [n[:,:,i] for i in range(3)]
+    R,G,B = color_axis(n,d)
+    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
+    #update(normals[:,:,0],normals[:,:,1],normals[:,:,2], 
+    #      COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat.transpose()))
+    window.Refresh()
+    pylab.waitforbuttonpress(0.001)
+    cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
+    err = np.sum(weights*[np.max((1.0-(c/d*c/d),0*c),0) for c in cc])
+    derr = np.abs(perr-err)
+    perr = err
+    xm,ym,zm = [(c <= d*d)*weights for c in cc] # threshold mask
+    dX = (Z*ym - Y*zm).sum() / (ym.sum() + zm.sum())
+    dY = (X*zm - Z*xm).sum() / (zm.sum() + xm.sum())
+    dZ = (Y*xm - X*ym).sum() / (xm.sum() + ym.sum())
+    m = expmap.euler2rot([dX, dY, dZ])
+    mat = np.dot(m.transpose(), mat)
+  return expmap.rot2axis(mat)
+    
+  
 def score(normals, weights):
+  d = 0.1
   X,Y,Z = [normals[:,:,i] for i in range(3)]
   cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
-  return np.sum([np.power(1.0 - c, 20)*weights for c in cc])
+  return np.sum([np.max((1.0-(c/d*c/d),0*c),0) for c in cc])
   
 def apply_rot(rot, xyz):
   flat = np.rollaxis(xyz,2).reshape((3,-1))
@@ -98,11 +151,11 @@ def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
     rot = expmap.axis2rot(x)
     n = apply_rot(rot, normals)
     R,G,B = color_axis(n)
-    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
+    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.4,G+0.4,B+0.4,(R+G+B)))
     #window.Refresh()
     #pylab.waitforbuttonpress(0.001)
-    window.processPaintEvent(Skip())
-    return score(n)
+    window.processPaintEvent()
+    return score(n, weights)
   x,y = np.meshgrid(rangex, rangey)
   z = [err(r0+np.array([xp,yp,0])) for xp in rangex for yp in rangey]
   z = np.reshape(z, (len(rangey),len(rangex)))
@@ -115,46 +168,51 @@ def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
   	linewidth=0,antialiased=False)
   fig.show()
 
+def go():
+  while 1:
+    x0 = (np.random.rand(3)*2-1)*0.5 + np.array(r0)
+    print mean_shift_optimize(n, weights, x0)
+    #print optimize_normals(n, weights, x0)
   
   
-def optimize_normals(normals, weights):
+def optimize_normals(normals, weights,x0):
   # Optimize a cost function to find the rotation
   def err(x):
     rot = expmap.axis2rot(x)
     n = apply_rot(rot, normals)
     R,G,B = color_axis(n)
-    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
+    # This version keeps the axes fixed and rotates the cloud
+    #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
+    
+    # This version keep the point cloud stationary and rotates the axes
+    update(normals[:,:,0],normals[:,:,1],normals[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights),AXES=x)
     window.Refresh()
     pylab.waitforbuttonpress(0.001)
     #window.processPaintEvent(Skip())
     return -score(n, weights)
-  xs = scipy.optimize.fmin(err, [0.0,0.0,0])
+  xs = scipy.optimize.fmin(err, x0)
   return xs
   
-      
-
+    
 
 #depth, rgb = [x[1] for x in np.load('data/ceiling.npz').items()]
 #rgb, depth = [x[1] for x in np.load('data/block1.npz').items()]
 #v,u = np.mgrid[160:282,330:510]
+#r0 = [-0.7,-0.2,0]
 rgb, depth = [x[1] for x in np.load('data/block2.npz').items()]
 v,u = np.mgrid[231:371,264:434]
+r0 = [-0.63, 0.68, 0.17]
 #v,u = np.mgrid[:480,:640]
 x,y,z = project(depth[v,u], u, v)
 
 # sub sample
-if not 'window' in globals(): window = PCLWindow(size=(640,480))
 if not 'weights' in globals(): n,weights = normal_compute(x,y,z)
 #update(x,y,z,u,v,rgb)
 #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 
 update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
 R,G,B = color_axis(n)
-update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,(R+G+B)))
+update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R,G,B,R+G+B))
 import cv
-class Skip():
-  def Skip(self):
-    pass
-
 
 window.Refresh()

@@ -125,17 +125,8 @@ class PCLWindow(Window):
     glDisable(TEXTURE_TARGET)
     glDisable(GL_BLEND)
 
-    # Draw some axes
-    if 1:
-      glLineWidth(3)
-      glPushMatrix()
-      glScalef(1.5,1.5,1.5)
-      glBegin(GL_LINES)
-      glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-      glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-      glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-      glEnd()
-      glPopMatrix()
+    self._wrap('on_draw_axes')
+    
     #
     if 0:
         inds = np.nonzero(xyz[:,2]>-0.55)
