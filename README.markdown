@@ -4,17 +4,14 @@ tinker with kinect data in OpenCV, OpenGL, and Matplotlib, all at the same time!
 Installation
 ------------
 1. You need to have installed: IPython, Matplotlib, OpenCV 2.1, PyOpengl, wxPython
-2. Build the latest version of libfreenect:
-		git clone https://github.com/bwhite/libfreenect.git
-		cd libfreenect
-		git pull origin master
-	Follow the instructions in the README there to build with cmake.
+2. Build the latest version of libfreenect.
+	https://github.com/openkinect/libfreenect
 		
 3. Build and install the python wrappers for libfreenect
 		cd libfreenect/wrappers/python
 		python setup.py install
 
-4. Download the latest version of this demo project
+4. Download the latest version of this project
 		git clone https://github.com/amiller/pykinect.git
 		cd pykinect
 		

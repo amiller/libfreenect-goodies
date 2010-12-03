@@ -237,7 +237,7 @@ def update_off():
 def loopcv():
   import cv
   while 1:
-    cv.ShowImage('hi',get_depth_np().astype(np.uint8))
+    cv.ShowImage('hi',get_depth().astype(np.uint8))
     cv.WaitKey(10)
 
 update() 
