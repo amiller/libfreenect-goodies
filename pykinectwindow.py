@@ -28,7 +28,7 @@ class Window(wx.Frame):
     def _wrap(self, name, *args, **kwargs):
       try:
         self.__getattribute__(name)
-      except KeyError:
+      except AttributeError:
         pass
       else:
         self.__getattribute__(name)(*args, **kwargs)
