@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from freenect import sync_get_depth_np as get_depth, sync_get_rgb_np as get_rgb
+from freenect import sync_get_depth as get_depth, sync_get_rgb as get_rgb
 import cv  
 import numpy as np
   

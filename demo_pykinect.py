@@ -175,8 +175,8 @@ def playcolors():
 
 def update(dt=0):
   global projpts, rgb, depth
-  depth,_ = freenect.sync_get_depth_np()
-  rgb,_ = freenect.sync_get_rgb_np()
+  depth,_ = freenect.sync_get_depth()
+  rgb,_ = freenect.sync_get_rgb()
   q = depth
   X,Y = np.meshgrid(range(640),range(480))
   # YOU CAN CHANGE THIS AND RERUN THE PROGRAM!
@@ -215,7 +215,7 @@ def update_off():
 def loopcv():
   import cv
   while 1:
-    cv.ShowImage('hi',get_depth_np().astype(np.uint8))
+    cv.ShowImage('hi',get_depth().astype(np.uint8))
     cv.WaitKey(10)
 
 update() 
