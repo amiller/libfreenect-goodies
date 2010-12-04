@@ -13,7 +13,8 @@ def circular_mean(data, modulo):
   angle = data / modulo * np.pi * 2
   y = np.sin(angle)
   x = np.cos(angle)
-  return np.arctan2(y.mean(),x.mean()) / (2*np.pi) * modulo
+  a2 = np.arctan2(y.mean(),x.mean()) / (2*np.pi)
+  return a2 * modulo if a2 >= 0 else (a2+1)*modulo
   
 def color_axis(normals,d=0.1):
   #n = np.log(np.power(normals,40))
@@ -27,46 +28,43 @@ def show_projections(rotpts,cc,weights,rotn):
   figure(1)
   global meanx, meany
   meanx = circular_mean(rotpts[:,:,0][cc[0,:,:]>0],0.0158)
-  meany = circular_mean(rotpts[:,:,1][cc[1,:,:]>0],0.0192)
+  meany = circular_mean(rotpts[:,:,1][cc[1,:,:]>0],0.0196)
   meanz = circular_mean(rotpts[:,:,2][cc[2,:,:]>0],0.0158)
   mx = np.floor(rotpts[:,:,0][weights>0].mean()/.0158)*.0158
   mz = np.floor(rotpts[:,:,2][weights>0].mean()/.0158)*.0158
   my = np.floor(rotpts[:,:,1][weights>0].mean()/.0196)*.0196
 
   R,G,B = color_axis(rotn); R = R[weights>0]; G = G[weights>0]; B = B[weights>0]
-  update(rotpts[:,:,0][weights>0]-mx,rotpts[:,:,1][weights>0]-my,rotpts[:,:,2][weights>0]-mz,COLOR=(R,G,B,R+G+B))
+  update(rotpts[:,:,0][weights>0]-mx-meanx,
+         rotpts[:,:,1][weights>0]-my-meany,
+         rotpts[:,:,2][weights>0]-mz-meanz,COLOR=(R,G,B,R+G+B))
   window.Refresh()
-  pylab.draw()
-  pylab.waitforbuttonpress(0.1)
 
   clf(); 
   title('height vs Z')
   xlabel('Z (meters)')
   ylabel('Height/Y (meters)')
-  xticks((np.arange(-10,10) + np.floor(rotpts[:,:,2][cc[2,:,:]>0].mean()/.0158))*0.0158)
-  yticks((np.arange(-10,10) + np.floor(rotpts[:,:,1][cc[1,:,:]>0].mean()/.0196))*0.0196)
+  xticks(np.arange(-10,10)*.0158 + mz)
+  yticks(np.arange(-10,10)*.0196 + my)
   scatter(rotpts[:,:,2][weights>0]-meanz, rotpts[:,:,1][weights>0]-meany)
   scatter(rotpts[:,:,2][cc[2,:,:]>0]-meanz, rotpts[:,:,1][cc[2,:,:]>0]-meany,c='r')
   gca().set_xlim(gca().get_xlim()[::-1]) 
   grid('on')
-  figure(3)
-  clf();
-  yticks(np.arange(-10,10)*0.0158)
-  xticks(np.arange(-30,-10)*0.0192)
-  scatter(rotpts[:,:,1][cc[2,:,:]>0].flatten()-meany, np.mod(rotpts[:,:,2][cc[2,:,:]>0].flatten(),0.0158)-meanx)
-  grid ('on')
+  pylab.draw()
+  
   figure(2)
   clf()
   title('Height vs X')
   xlabel('X (meters)')
   ylabel('Height/Y (meters)')
-  xticks((np.arange(-10,10) + np.floor(rotpts[:,:,0][cc[0,:,:]>0].mean()/.0158))*0.0158)
-  yticks((np.arange(-10,10) + np.floor(rotpts[:,:,1][cc[1,:,:]>0].mean()/.0196))*0.0196)
+  xticks(np.arange(-10,10)*.0158 + mx)
+  yticks(np.arange(-10,10)*.0196 + my)
   grid('on')
   scatter(rotpts[:,:,0][cc[2,:,:]>0]-meanx,rotpts[:,:,1][cc[2,:,:]>0]-meany)
   scatter(rotpts[:,:,0][cc[0,:,:]>0]-meanx,rotpts[:,:,1][cc[0,:,:]>0]-meany, c='r')
+  pylab.draw()
   
-
+  pylab.waitforbuttonpress(0.1)
 
 
 
@@ -126,9 +124,9 @@ def play_movie():
 rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
 v,u = np.mgrid[231:371,264:434]
 r0 = [-0.63, 0.68, 0.17]
-#depth = np.load('data/movies/test/depth_00000.npz').items()[0][1]
-#v,u = np.mgrid[175:332,365:485]
-#r0 = [-0.7626858, 0.28330218, 0.17082515]
+# depth = np.load('data/movies/test/depth_00000.npz').items()[0][1].astype(np.float32)
+# v,u = np.mgrid[175:332,365:485]
+# r0 = [-0.7626858, 0.28330218, 0.17082515]
 # depth = np.load('data/movies/single/depth_00000.npz').items()[0][1]
 # v,u = np.mgrid[146:202,344:422]
 # r0 = np.array([-0.7,-0.2,0])
@@ -136,8 +134,7 @@ r0 = [-0.63, 0.68, 0.17]
 x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
 
 # sub sample
-if not 'weights' in globals(): 
-  n,weights = normals.fast_normals(depth[v,u],u.astype(np.float32),v.astype(np.float32))
+n,weights = normals.fast_normals(depth[v,u],u.astype(np.float32),v.astype(np.float32))
 #update(x,y,z,u,v,rgb)
 #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 
@@ -150,7 +147,9 @@ rotaxis, cc = normals.mean_shift_optimize(n,weights, np.array(r0))
 rot = expmap.axis2rot(rotaxis)
 rotpts = normals.apply_rot(rot, np.dstack((x,y,z)))
 rotn = normals.apply_rot(rot, n)
+from pylab import *
 show_projections(rotpts,cc,weights,rotn)
 
 
 window.Refresh()
+

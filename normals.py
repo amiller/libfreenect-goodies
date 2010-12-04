@@ -15,7 +15,7 @@ from OpenGL.GL import *
 # u, v are image coordinates, depth comes from the kinect
 def project(depth, u, v):
   Z = -1.0 / (-0.0030711*depth + 3.3309495)
-  X = -(u.astype(np.float32) - 320.0) * Z / 590.0
+  X = -(u.astype(np.float32) - 340.0) * Z / 590.0
   Y = (v.astype(np.float32) - 240.0) * Z / 590.0
   return X,Y,Z
   
@@ -23,7 +23,7 @@ def other_project(depth, u, v):
   f = 590.0
   a = -0.0030711
   b = 3.3309495
-  cx = 320.0
+  cx = 340.0
   cy = 240.0
   n = np.dstack((u,v,depth))
   global mat
