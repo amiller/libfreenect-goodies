@@ -5,6 +5,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import time
 import freenect
+import calibkinect
 
 
 # I probably need more help with these!
@@ -60,53 +61,6 @@ def EVT_MOUSEWHEEL(event):
   zoomdist *= np.power(0.95, -dy)
   refresh()
   
-
-# Return a point cloud, an Nx3 array, made by projecting the kinet depth map 
-# through calibration / registration
-# u, v are image coordinates, depth comes from the kinect
-def project(depth, u, v):
-  C = np.vstack((u.flatten(), v.flatten(), depth.flatten(), 0*u.flatten()+1))
-  
-  # Project the vertices using xyz_matrix()
-  X,Y,Z,W = np.dot(xyz_matrix(),C)
-  X,Y,Z = X/W, Y/W, Z/W
-  xyz = np.vstack((X,Y,Z)).transpose()
-  xyz = xyz[Z<0,:]
-  
-  # Project the color coordinates using rgb_matrix() and xyz_matrix()
-  U,V,_,W = np.dot(np.dot(rgb_matrix(), xyz_matrix()),C)
-  U,V = U/W, V/W
-  uv = np.vstack((U,V)).transpose()    
-  uv = uv[Z<0,:]       
-  
-  return xyz, uv
-  
-def rgb_matrix():
-  rot = np.array([[ 9.99846e-01,   -1.26353e-03,   1.74872e-02], 
-                  [-1.4779096e-03, -9.999238e-01,  1.225138e-02],
-                  [1.747042e-02,   -1.227534e-02,  -9.99772e-01]])
-  trans = np.array([[1.9985e-02, -7.44237e-04,-1.0916736e-02]])
-  m = np.hstack((rot, -trans.transpose()))
-  m = np.vstack((m, np.array([[0,0,0,1]])))
-  KK = np.array([[529.2, 0, 329, 0],
-                 [0, 525.6, 267.5, 0],
-                 [0, 0, 0, 0],
-                 [0, 0, 1, 0]])
-  m = np.dot(KK, (m))
-  return m.astype(np.float32)
-  
-def xyz_matrix():
-  fx = 594.21
-  fy = 591.04
-  a = -0.0030711
-  b = 3.3309495
-  cx = 339.5
-  cy = 242.7
-  mat = np.array([[1/fx, 0, 0, -cx/fx],
-                  [0, -1/fy, 0, cy/fy],
-                  [0,   0, 0,    -1],
-                  [0,   0, a,     b]])
-  return mat.astype(np.float32)
 
 clearcolor = [0,0,0,0]
 @win.event
@@ -165,13 +119,13 @@ def on_draw():
     
     glMatrixMode(GL_TEXTURE)
     glLoadIdentity()
-    glMultMatrixf(rgb_matrix().transpose())
-    glMultMatrixf(xyz_matrix().transpose())
+    glMultMatrixf(calibkinect.uv_matrix().transpose())
+    glMultMatrixf(calibkinect.xyz_matrix().transpose())
     glTexCoordPointers(np.array(points))
     
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
-    glMultMatrixf(xyz_matrix().transpose())
+    glMultMatrixf(calibkinect.xyz_matrix().transpose())
     glVertexPointers(np.array(points))
   else:
     glMatrixMode(GL_TEXTURE)
@@ -233,13 +187,13 @@ def playcolors():
 def update(dt=0):
   global projpts, rgb, depth
   depth,_ = freenect.sync_get_depth()
-  rgb,_ = freenect.sync_get_rgb()
+  rgb,_ = freenect.sync_get_video()
   q = depth
   X,Y = np.meshgrid(range(640),range(480))
   # YOU CAN CHANGE THIS AND RERUN THE PROGRAM!
   # Point cloud downsampling
   d = 4
-  projpts = project(q[::d,::d],X[::d,::d],Y[::d,::d])
+  projpts = calibkinect.depth2xyzuv(q[::d,::d],X[::d,::d],Y[::d,::d])
   refresh()
   
 def update_join():
