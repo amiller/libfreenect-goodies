@@ -12,7 +12,7 @@ Installation
 		python setup.py install
 
 4. Download the latest version of this project
-		git clone https://github.com/amiller/pykinect.git
+		git clone https://github.com/amiller/libfreenect-goodies.git
 		cd pykinect
 		
 5. Test that python can find libfreenect by running:
