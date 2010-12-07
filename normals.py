@@ -8,33 +8,16 @@ import scipy
 import scipy.optimize
 import pylab
 from OpenGL.GL import *
+import calibkinect
 
-
-# Return a point cloud, an Nx3 array, made by projecting the kinet depth map 
-# through calibration / registration
-# u, v are image coordinates, depth comes from the kinect
-def project(depth, u, v):
-  Z = -1.0 / (-0.0030711*depth + 3.3309495)
-  X = -(u.astype(np.float32) - 340.0) * Z / 590.0
-  Y = (v.astype(np.float32) - 240.0) * Z / 590.0
-  return X,Y,Z
   
-def other_project(depth, u, v):
-  f = 590.0
-  a = -0.0030711
-  b = 3.3309495
-  cx = 340.0
-  cy = 240.0
-  n = np.dstack((u,v,depth))
-  global mat
-  mat = np.array([[1/f, 0, 0, -cx/f],
-                  [0,-1/f, 0,  cy/f],
-                  [0,   0, 0,    -1],
-                  [0,   0, a,     b]])
-  x = n[:,:,0]*mat[0,0] + n[:,:,1]*mat[0,1] + n[:,:,2]*mat[0,2] + mat[0,3]
-  y = n[:,:,0]*mat[1,0] + n[:,:,1]*mat[1,1] + n[:,:,2]*mat[1,2] + mat[1,3]
-  z = n[:,:,0]*mat[2,0] + n[:,:,1]*mat[2,1] + n[:,:,2]*mat[2,2] + mat[2,3]
-  w = n[:,:,0]*mat[3,0] + n[:,:,1]*mat[3,1] + n[:,:,2]*mat[3,2] + mat[3,3]
+def project(depth, u, v):
+  X,Y,Z = u,v,depth
+  mat = calibkinect.xyz_matrix()
+  x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + mat[0,3]
+  y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
+  z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
+  w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
   return x/w, y/w, z/w
   
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
@@ -63,32 +46,28 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   window.UV = uv if UV else None
   window.COLOR = color if COLOR else None
   window.RGB = rgb
+  
+def normal_show(nx,ny,nz):
+  return np.dstack((nx/2+.5,ny/2+.5,nz/2+.5))
+  
 
 def fast_normals(depth, u, v):
-  f = 590.0
-  a = -0.0030711
-  b = 3.3309495
-  cx = 320.0
-  cy = 240.0
   
   from scipy.ndimage.filters import uniform_filter, convolve
   depth = np.array(depth)
   depth[depth==2047] = -1e8
-  depth = uniform_filter(depth, 7)
+  depth = uniform_filter(depth, 6)
   
-  dx = convolve(depth, np.array([[1,0,-1]],np.int16))/np.float32(2.0)
-  dy = convolve(depth, np.array([[1],[0],[-1]],np.int16))/np.float32(2.0)
-  n = np.dstack((-dx, -dy, 0*dy+1))
-  zw = -(n[:,:,0]*u + n[:,:,1]*v + n[:,:,2]*depth)
-  global mat
-  mat = np.linalg.inv(
-        np.array([[1/f, 0, 0,-cx/f],
-                  [0,-1/f, 0, cy/f],
-                  [0,   0, 0,   -1],
-                  [0,   0, a,    b]],np.float32)).transpose()
-  x = n[:,:,0]*mat[0,0] + n[:,:,1]*mat[0,1] + n[:,:,2]*mat[0,2] + zw*mat[0,3]
-  y = n[:,:,0]*mat[1,0] + n[:,:,1]*mat[1,1] + n[:,:,2]*mat[1,2] + zw*mat[1,3]
-  z = n[:,:,0]*mat[2,0] + n[:,:,1]*mat[2,1] + n[:,:,2]*mat[2,2] + zw*mat[2,3]
+  #dx = convolve(depth, np.array([[1,0,-1]],np.int16))/np.float32(2.0)
+  #dy = convolve(depth, np.array([[1],[0],[-1]],np.int16))/np.float32(2.0)
+  dx = (np.roll(depth,-1,1) - np.roll(depth,1,1))/2
+  dy = (np.roll(depth,-1,0) - np.roll(depth,1,0))/2
+  X,Y,Z,W = -dx, -dy, 0*dy+1, -(-dx*u + -dy*v + depth).astype(np.float32)
+  
+  mat = np.linalg.inv(calibkinect.xyz_matrix()).transpose()
+  x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + W*mat[0,3]
+  y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + W*mat[1,3]
+  z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + W*mat[2,3]
   w = np.sqrt(x*x + y*y + z*z)
   w[z<0] *= -1
   weights = z*0+1
@@ -243,7 +222,6 @@ def optimize_normals(normals, weights,x0):
     update(normals[:,:,0],normals[:,:,1],normals[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights),AXES=x)
     window.Refresh()
     pylab.waitforbuttonpress(0.001)
-    #window.processPaintEvent(Skip())
     return -score(n, weights)
   xs = scipy.optimize.fmin(err, x0)
   return xs
@@ -280,7 +258,8 @@ if __name__ == "__main__":
   
   x,y,z = project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
   # sub sample
-  if not 'weights' in globals(): n,weights = normal_compute(x,y,z)
+  #n,weights = normal_compute(x,y,z)
+  n,weights = fast_normals(depth[v,u],u,v)
   #update(x,y,z,u,v,rgb)
   #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 

@@ -1,9 +1,12 @@
 import numpy as np
 import timeit
-#import pyximport; pyximport.install()
+import pyximport; pyximport.install()
 import speedup
+import sys
+sys.path += ['..']
+import normals
 
-rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
+rgb, depth = [x[1].astype(np.float32) for x in np.load('../data/block2.npz').items()]
 #v,u = np.mgrid[:480,:640]
 v,u = np.mgrid[:100,:100]
 from IPython.Shell import IPShellEmbed
@@ -65,13 +68,44 @@ def normal_compute(x,y,z):
 
 X,Y,Z = project(depth[v,u],v.astype(np.float32),u.astype(np.float32))
   
+  
 #print 'native_'
-ip('timeit project(depth[v,u],v.astype(np.float32),u.astype(np.float32))')
+#ip('timeit project(depth[v,u],v.astype(np.float32),u.astype(np.float32))')
 #print 'project'
-ip('timeit speedup.project(depth[v,u],v.astype(np.float32),u.astype(np.float32))')
+#ip('timeit speedup.project(depth[v,u],v.astype(np.float32),u.astype(np.float32))')
 
 #n1 = project(depth[v,u],v.astype(np.float32),u.astype(np.float32))
 #n2 = speedup.project(depth[v,u],v.astype(np.float32),u.astype(np.float32))
 
-#print 'normal_compute numpy:'
-#ip('timeit normal_compute(X,Y,Z)')
+def normal_test():
+  print 'normal_compute numpy:'
+  ip('timeit normal_compute(X,Y,Z)')
+  ip('timeit normals.fast_normals(depth[v,u],u.astype(np.float32),v.astype(np.float32))')
+#normal_test()
+
+import ctypes
+speedup2 = ctypes.cdll.LoadLibrary('speedup2.so')
+dx = np.array(depth)
+dy = np.array(depth)
+
+def gradient2(depth):
+  speedup2.gradient(depth.ctypes.data, dx.ctypes.data, dy.ctypes.data, depth.shape[0], depth.shape[1])
+  return dx,dy
+  
+def regular_roll(depth):
+  dx = (np.roll(depth,-1,1) - np.roll(depth,1,1))/2
+  dy = (np.roll(depth,-1,0) - np.roll(depth,1,0))/2
+  return dx, dy
+
+def fast_roll(depth):
+  dx,dy = speedup.gradient(depth)
+def roll_test():
+  print 'dx, dy'
+
+  ip('timeit gradient2(depth)')
+  #ip('timeit regular_roll(depth)')
+  #ip('timeit fast_roll(depth)')
+roll_test()
+
+
+    
