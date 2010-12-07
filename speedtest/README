@@ -1,0 +1,15 @@
+Speed tests using cython and ctypes
+
+1. Building
+-----------
+Build the cython and c modules:
+	python setup.py build_ext --inplace
+	
+or, equivalently,
+ 	./build.sh
+
+
+2. Running
+----------
+Run the speedtest
+	python speedtest.py

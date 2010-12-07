@@ -1,11 +1,6 @@
 #include <stdlib.h>
 
-float project(float *depth, float *u, float *v, int h, int w) {
-  return 0;
-}
-void scramble(float v) {
-  
-}
+
 
 void gradient(float *depth, float *dx, float *dy, int h, int w)
 {
