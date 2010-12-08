@@ -5,10 +5,10 @@ from Cython.Distutils import build_ext
 
 ext_modules = [Extension("speedup_cython", ["speedup_cython.pyx"],
           runtime_library_dirs=['/usr/local/lib'],
-          extra_compile_args=[ '-I', 
+          extra_compile_args=[ '-O3', '-I', 
 '/Library/Python/2.6/site-packages/numpy-1.4.0-py2.6-macosx-10.6-universal.egg/numpy/core/include/']),
 
-              Extension("speedup_ctypes", ["speedup_ctypes.c"])]
+              Extension("speedup_ctypes", ["speedup_ctypes.c"], extra_compile_args=['-O3'])]
 
 
 setup(

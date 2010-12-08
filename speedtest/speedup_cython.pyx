@@ -8,6 +8,7 @@ cdef extern from "math.h":
   double sin(double x)
   double arccos(double x)
 
+@cython.boundscheck(False)
 def gradient(np.ndarray[np.float32_t,ndim=2,mode='c'] depth):
   h,w = depth.shape[0], depth.shape[1]
   cdef np.ndarray[np.float32_t,ndim=2,mode='c'] dx = np.zeros((h,w),np.float32)
