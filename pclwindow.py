@@ -2,6 +2,7 @@ from pykinectwindow import Window
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
+from OpenGL.GL.ARB.vertex_buffer_object import *
 import calibkinect
 
 # I probably need more help with these!
@@ -21,8 +22,8 @@ class PCLWindow(Window):
     """
     self._depth[:,:,2] = depth
     self.canvas.SetCurrent()
-    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
-    glBufferSubData(GL_ARRAY_BUFFER, 0, 640*480*3*2, self._depth)
+    glBindBufferARB(GL_ARRAY_BUFFER_ARB, self.xyzbuf)
+    glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, 0, 640*480*3*2, self._depth)
     
     glBindTexture(TEXTURE_TARGET, self.rgbtex)
     glTexSubImage2D(TEXTURE_TARGET, 0, 0, 0, 640, 480, GL_RGB, GL_UNSIGNED_BYTE, rgb);
@@ -36,9 +37,9 @@ class PCLWindow(Window):
   
     self._depth = np.empty((480,640,3),np.int16)
     self._depth[:,:,1], self._depth[:,:,0] = np.mgrid[:480,:640]
-    self.xyzbuf = glGenBuffers(1)
-    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
-    glBufferData(GL_ARRAY_BUFFER, 640*480*3*2,None,GL_DYNAMIC_DRAW)
+    self.xyzbuf = glGenBuffersARB(1)
+    glBindBufferARB(GL_ARRAY_BUFFER_ARB, self.xyzbuf)
+    glBufferDataARB(GL_ARRAY_BUFFER_ARB, 640*480*3*2,None,GL_DYNAMIC_DRAW)
 
       
   def __init__(self, *args, **kwargs):
@@ -109,7 +110,7 @@ class PCLWindow(Window):
 
 
 
-    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
+    glBindBufferARB(GL_ARRAY_BUFFER_ARB, self.xyzbuf)
     glVertexPointers(None)
     glTexCoordPointer(3, GL_SHORT, 0, None)
 

@@ -45,20 +45,28 @@ class Ball(object):
         self.vel[2] = -self.vel[2]
       return
       
-    if self.pos[2] < -3:
+    if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 3: 
       self.reset()
       return
+    
+    
     #print self.depth[u,v] - d
     # Does the ball intersect here?
-    if np.abs(self.depth[v,u] - d) < 30:
-      self.vel[2] = -self.vel[2]
+    try:
+      if np.abs(self.depth[v,u] - d) < 30:
+        #self.vel[2] = -self.vel[2]
     
-    # Get a region of interest and run the normals on it
-    global rect
-    rect = (u-10,v-10),(u+10,v+10)
-    (l,t),(r,b) = rect
-    self.d,(self.u,self.v) = depth[t:b,l:r], np.mgrid[t:b,l:r]
-    self.n,self.w = normals.normals_c(self.d.astype('f'),self.u.astype('f'),self.v.astype('f'))
+        # Get a region of interest and run the normals on it
+        global rect
+        rect = (u-10,v-10),(u+10,v+10)
+        (l,t),(r,b) = rect
+        self.d,(self.u,self.v) = depth[t:b,l:r], np.mgrid[t:b,l:r]
+        self.n,self.w = normals.normals_c(self.d.astype('f'),self.u.astype('f'),self.v.astype('f'))
+        n = self.n[self.n.shape[0]/2,self.n.shape[1]/2]
+      
+        self.vel = self.vel - 2*n*np.dot(self.vel,n)
+    except:
+      pass
     
     
   def reset(self):
