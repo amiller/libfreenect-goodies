@@ -18,28 +18,36 @@ class Ball(object):
     self.reset()
     self.quad = gluNewQuadric()
     self.mat = np.linalg.inv(ck.xyz_matrix())
+    self.uvmat = ck.uv_matrix()
     
   def draw(self):
+
+    glColor(self.color)
     glPushMatrix()
     glTranslate(*self.pos)
     gluSphere(self.quad, 0.01, 10, 10)
     glPopMatrix()
+
    
   def update(self, dt):
-    self.pos = self.pos + self.vel*dt
-    
+    self.pos += self.vel*dt
+    self.vel *= np.power(.2,dt)
+    self.vel += np.array([0,-.8,-2])*dt
+
     # Find the location of the ball in the range image
     x,y,z = self.pos
-    global u,v,d
+    global u,v,d,ru,rv
     uv = np.dot(self.mat, np.array((x,y,z,1)))
     u,v,d = (uv[:3]/uv[3])
     u,v = np.floor(u),np.floor(v)
+    ruv = np.dot(self.uvmat, np.array((x,y,z,1)))
+    ru,rv = (ruv[:2]/ruv[3])
+    ru,rv = np.floor(ru),np.floor(rv)
     
     if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 2: 
       self.reset()
       return
 
-    
     #print self.depth[u,v] - d
     # Does the ball intersect here?
     try:
@@ -55,19 +63,26 @@ class Ball(object):
         n = self.n[self.n.shape[0]/2,self.n.shape[1]/2]
         
         if np.dot(n,self.vel) < 0:
+          self.vel *= 0.5
+          self.color = np.array([0,1,0])+np.random.rand(3)*.7
+          #self.color = rgb[rv,ru,:]/255.0
           self.vel = self.vel - 2*n*np.dot(self.vel,n)
+          raise
     except:
       pass
     
     
   def reset(self):
     self.pos = np.zeros(3)
-    self.vel = np.array([0,0,-0.8])
+    self.pos[:2] = (np.random.rand(2)-.5)*.01
+    self.vel = np.array([0,0.2,-2]) + np.random.rand(3)*.01
+    #self.color = np.random.rand(3)
+    self.color = np.array([1,0,0])+np.random.rand(3)*.7
 
 balls = []
 def update_balls(dt):
   global balls
-  if len(balls) < 40:
+  if len(balls) < 10:
     balls += [Ball()]
   for ball in balls:
     ball.update(dt)
@@ -85,8 +100,13 @@ def on_draw_axes():
   
   update_balls(0.03)
   for ball in balls:
+    glEnable(GL_LIGHT0)
+    glEnable(GL_LIGHTING)
+    glEnable(GL_COLOR_MATERIAL)
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
     ball.draw()
-  
+    glDisable(GL_LIGHTING)
+    glDisable(GL_COLOR_MATERIAL)
   
 def update(dt=0):
   global rgb, depth
@@ -94,7 +114,7 @@ def update(dt=0):
   rgb_,_ = freenect.sync_get_video()
   rgb,depth = np.array(rgb_), np.array(depth_)
   
-  rgb = rgb.clip(0,(255-70)/2)*2+70
+  rgb = rgb.clip(0,(255-70)/2, out=rgb)*2+70
   wx.CallAfter(window.update_kinect, depth, rgb)
   #ball.update_depth(depth)
 
@@ -130,4 +150,4 @@ def EVT_IDLE(evt):
 update()
 
 update_on()
-wx.__myapp.MainLoop()
+#wx.__myapp.MainLoop()

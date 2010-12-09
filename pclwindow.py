@@ -96,6 +96,7 @@ class PCLWindow(Window):
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluPerspective(60, 4/3., 0.3, 200)
+    #glScale(-1,1,1)
     #gluOrtho2D(-10,10,-10,10)
 
     glMatrixMode(GL_MODELVIEW)
