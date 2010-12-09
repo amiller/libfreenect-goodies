@@ -25,14 +25,14 @@ class Ball(object):
     glColor(self.color)
     glPushMatrix()
     glTranslate(*self.pos)
-    gluSphere(self.quad, 0.01, 10, 10)
+    gluSphere(self.quad, 0.02, 10, 10)
     glPopMatrix()
 
    
   def update(self, dt):
     self.pos += self.vel*dt
     self.vel *= np.power(.2,dt)
-    self.vel += np.array([0,-.8,-2])*dt
+    self.vel += np.array([0,-.8,-1])*dt
 
     # Find the location of the ball in the range image
     x,y,z = self.pos
@@ -44,7 +44,7 @@ class Ball(object):
     ru,rv = (ruv[:2]/ruv[3])
     ru,rv = np.floor(ru),np.floor(rv)
     
-    if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 2: 
+    if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 1.5: 
       self.reset()
       return
 
@@ -63,9 +63,9 @@ class Ball(object):
         n = self.n[self.n.shape[0]/2,self.n.shape[1]/2]
         
         if np.dot(n,self.vel) < 0:
-          self.vel *= 0.5
-          self.color = np.array([0,1,0])+np.random.rand(3)*.7
-          #self.color = rgb[rv,ru,:]/255.0
+          self.vel *= 0.7
+          #self.color = np.array([0,1,0])+np.random.rand(3)*.7
+          self.color = rgb[rv,ru,:]/255.0
           self.vel = self.vel - 2*n*np.dot(self.vel,n)
           raise
     except:
@@ -92,11 +92,12 @@ def update_balls(dt):
 def on_draw_axes():
   # Draw some axes
   #glDisable(GL_DEPTH_TEST)
-  glBegin(GL_LINES)
-  glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-  glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-  glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-  glEnd()
+  if 0:
+    glBegin(GL_LINES)
+    glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+    glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+    glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+    glEnd()
   
   update_balls(0.03)
   for ball in balls:
@@ -114,7 +115,7 @@ def update(dt=0):
   rgb_,_ = freenect.sync_get_video()
   rgb,depth = np.array(rgb_), np.array(depth_)
   
-  rgb = rgb.clip(0,(255-70)/2, out=rgb)*2+70
+  rgb = rgb.clip(0,(255-30)/2, out=rgb)*2+30
   wx.CallAfter(window.update_kinect, depth, rgb)
   #ball.update_depth(depth)
 

@@ -107,7 +107,7 @@ class PCLWindow(Window):
       glRotatef(yAngle, 0.0, 1.0, 0.0);
       glRotatef(zAngle, 0.0, 0.0, 1.0);
     glScale(self.zoomdist,self.zoomdist,1)
-    glTranslate(0, 0,-3.5)
+    glTranslate(0, 0,-1.5)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
     glTranslate(0,0,1.5)
     #glTranslate(0, 0,-1)
@@ -128,7 +128,7 @@ class PCLWindow(Window):
     glMultMatrixf(calibkinect.xyz_matrix().transpose())
 
     # Draw the points
-    glPointSize(1)
+    glPointSize(2)
     glEnableClientState(GL_VERTEX_ARRAY)
     glEnableClientState(GL_TEXTURE_COORD_ARRAY)
   
