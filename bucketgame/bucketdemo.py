@@ -129,4 +129,4 @@ def EVT_IDLE(evt):
 update()
 
 update_on()
-#wx.__myapp.MainLoop()
+wx.__myapp.MainLoop()
