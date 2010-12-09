@@ -17,6 +17,7 @@ class Ball(object):
   def __init__(self):
     self.reset()
     self.quad = gluNewQuadric()
+    self.mat = np.linalg.inv(ck.xyz_matrix())
     
   def draw(self):
     glPushMatrix()
@@ -30,19 +31,14 @@ class Ball(object):
     # Find the location of the ball in the range image
     x,y,z = self.pos
     global u,v,d
-    uv = np.dot(np.linalg.inv(ck.xyz_matrix()), np.array((x,y,z,1)))
+    uv = np.dot(self.mat, np.array((x,y,z,1)))
     u,v,d = (uv[:3]/uv[3])
     u,v = np.floor(u),np.floor(v)
     
-    if self.vel[2]>0:
-      if self.pos[2] > 0:
-        self.vel[2] = -self.vel[2]
-      return
-      
-    if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 3: 
+    if np.sqrt(np.sum(np.dot(self.pos,self.pos))) > 2: 
       self.reset()
       return
-    
+
     
     #print self.depth[u,v] - d
     # Does the ball intersect here?
@@ -52,7 +48,7 @@ class Ball(object):
     
         # Get a region of interest and run the normals on it
         global rect
-        rect = (u-10,v-10),(u+10,v+10)
+        rect = (u-6,v-6),(u+6,v+6)
         (l,t),(r,b) = rect
         self.d,(self.u,self.v) = depth[t:b,l:r], np.mgrid[t:b,l:r]
         self.n,self.w = normals.normals_c(self.d.astype('f'),self.u.astype('f'),self.v.astype('f'))
