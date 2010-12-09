@@ -11,7 +11,6 @@ import calibkinect as ck
 import normals
 
 if not 'window' in globals(): window = Window(size=(640,480))
-
 # Update the point cloud from the shell or from a background thread!
 
 class Ball(object):
@@ -26,9 +25,9 @@ class Ball(object):
     gluSphere(self.quad, 0.01, 10, 10)
     glPopMatrix()
     
-  def update_depth(self, depth):
+  def update_depth(depth):
     # Check for collisions
-    self.depth = depth
+    Ball.depth = depth
    
   def update(self, dt):
     self.pos = self.pos + self.vel*dt
@@ -85,7 +84,7 @@ def on_draw_axes():
   glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
   glEnd()
   
-  ball.update_depth(depth)
+  Ball.update_depth(depth)
   ball.update(0.03) # just assume 30fps
   ball.draw()
   
@@ -132,4 +131,4 @@ def EVT_IDLE(evt):
 update()
 
 update_on()
-wx.__myapp.MainLoop()
+#wx.__myapp.MainLoop()

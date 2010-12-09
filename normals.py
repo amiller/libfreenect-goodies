@@ -203,8 +203,9 @@ def apply_rot(rot, xyz):
   xp = np.dot(rot, flat)
   return xp.transpose().reshape(xyz.shape)
   
-import mpl_toolkits.mplot3d.axes3d as mp3
+
 def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
+  import mpl_toolkits.mplot3d.axes3d as mp3
   rangex = np.arange(-0.6,0.6,0.06)
   rangey = np.arange(-0.6,0.6,0.06)
   def err(x):

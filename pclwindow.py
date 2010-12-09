@@ -39,7 +39,8 @@ class PCLWindow(Window):
     self._depth[:,:,1], self._depth[:,:,0] = np.mgrid[:480,:640]
     self.xyzbuf = glGenBuffersARB(1)
     glBindBufferARB(GL_ARRAY_BUFFER_ARB, self.xyzbuf)
-    glBufferDataARB(GL_ARRAY_BUFFER_ARB, 640*480*3*2,None,GL_DYNAMIC_DRAW)
+    #glBufferData(GL_ARRAY_BUFFER_ARB, 640*480*3*2,None,GL_DYNAMIC_DRAW)
+    glBufferDataARB(GL_ARRAY_BUFFER_ARB, 640*480*3*2, None,GL_DYNAMIC_DRAW)
 
       
   def __init__(self, *args, **kwargs):
@@ -74,8 +75,10 @@ class PCLWindow(Window):
       dy = event.WheelRotation
       self.zoomdist *= np.power(0.95, -dy)
       self.Refresh()
+    self._initOK = True
 
   def on_draw(self):  
+    if not '_initOK' in dir(self): return
     
     clearcolor = [0,0,0,0]
     glClearColor(*clearcolor)
