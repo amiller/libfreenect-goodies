@@ -53,8 +53,9 @@ class Ball(object):
         self.d,(self.u,self.v) = depth[t:b,l:r], np.mgrid[t:b,l:r]
         self.n,self.w = normals.normals_c(self.d.astype('f'),self.u.astype('f'),self.v.astype('f'))
         n = self.n[self.n.shape[0]/2,self.n.shape[1]/2]
-      
-        self.vel = self.vel - 2*n*np.dot(self.vel,n)
+        
+        if np.dot(n,self.vel) < 0:
+          self.vel = self.vel - 2*n*np.dot(self.vel,n)
     except:
       pass
     
