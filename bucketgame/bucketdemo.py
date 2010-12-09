@@ -17,17 +17,12 @@ class Ball(object):
   def __init__(self):
     self.reset()
     self.quad = gluNewQuadric()
-    self.depth = None
     
   def draw(self):
     glPushMatrix()
     glTranslate(*self.pos)
     gluSphere(self.quad, 0.01, 10, 10)
     glPopMatrix()
-    
-  def update_depth(depth):
-    # Check for collisions
-    Ball.depth = depth
    
   def update(self, dt):
     self.pos = self.pos + self.vel*dt
@@ -52,7 +47,7 @@ class Ball(object):
     #print self.depth[u,v] - d
     # Does the ball intersect here?
     try:
-      if np.abs(self.depth[v,u] - d) < 30:
+      if np.abs(depth[v,u] - d) < 30:
         #self.vel[2] = -self.vel[2]
     
         # Get a region of interest and run the normals on it
@@ -71,9 +66,16 @@ class Ball(object):
   def reset(self):
     self.pos = np.zeros(3)
     self.vel = np.array([0,0,-0.8])
-    
-ball = Ball()
-    
+
+balls = []
+def update_balls(dt):
+  global balls
+  if len(balls) < 40:
+    balls += [Ball()]
+  for ball in balls:
+    ball.update(dt)
+
+
 @window.event
 def on_draw_axes():
   # Draw some axes
@@ -84,9 +86,9 @@ def on_draw_axes():
   glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
   glEnd()
   
-  Ball.update_depth(depth)
-  ball.update(0.03) # just assume 30fps
-  ball.draw()
+  update_balls(0.03)
+  for ball in balls:
+    ball.draw()
   
   
 def update(dt=0):
