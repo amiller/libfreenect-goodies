@@ -2,6 +2,7 @@ from pykinectwindow import Window
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
+import calibkinect
 
 # I probably need more help with these!
 try: 
@@ -9,27 +10,44 @@ try:
 except:
   TEXTURE_TARGET = GL_TEXTURE_RECTANGLE_ARB
 
-def create_texture():
-  global rgbtex
-  rgbtex = glGenTextures(1)
-  glBindTexture(TEXTURE_TARGET, rgbtex)
-  glTexImage2D(TEXTURE_TARGET,0,GL_RGB,640,480,0,GL_RGB,GL_UNSIGNED_BYTE,None)
+
 
 # Window for drawing point clouds
 class PCLWindow(Window):
   
+  def update_kinect(self, depth, rgb):
+    """
+    Update all the textures and vertex buffers with new data. Threadsafe.
+    """
+    self._depth[:,:,2] = depth
+    self.canvas.SetCurrent()
+    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
+    glBufferSubData(GL_ARRAY_BUFFER, 0, 640*480*3*2, self._depth)
+    
+    glBindTexture(TEXTURE_TARGET, self.rgbtex)
+    glTexSubImage2D(TEXTURE_TARGET, 0, 0, 0, 640, 480, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+    
+    self.Refresh()
+
+  def create_buffers(self):
+    self.rgbtex = glGenTextures(1)
+    glBindTexture(TEXTURE_TARGET, self.rgbtex)
+    glTexImage2D(TEXTURE_TARGET,0,GL_RGB,640,480,0,GL_RGB,GL_UNSIGNED_BYTE,None)
+  
+    self._depth = np.empty((480,640,3),np.int16)
+    self._depth[:,:,1], self._depth[:,:,0] = np.mgrid[:480,:640]
+    self.xyzbuf = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
+    glBufferData(GL_ARRAY_BUFFER, 640*480*3*2,None,GL_DYNAMIC_DRAW)
+
+      
   def __init__(self, *args, **kwargs):
     super(PCLWindow,self).__init__(*args, **kwargs)
     self.rotangles = [0,0]
     self.zoomdist = 1
-    self.XYZ = None
-    self.UV = None
-    self.RGB = None
-    self.COLOR = None
     self._mpos = None
-    #import cv
-    #cv.NamedWindow('__init')
-    #cv.DestroyWindow('__init')
+    
+    self.create_buffers()
     
     @self.eventx
     def EVT_LEFT_DOWN(event):
@@ -57,23 +75,18 @@ class PCLWindow(Window):
       self.Refresh()
 
   def on_draw(self):  
-    if not 'rgbtex' in globals():
-      create_texture()
-
+    
     clearcolor = [0,0,0,0]
     glClearColor(*clearcolor)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    
-    xyz, uv, rgb, color = self.XYZ, self.UV, self.RGB, self.COLOR
-    if xyz is None: return
-
-    if not rgb is None:
-      rgb_ = (rgb.astype(np.float32) * 4 + 70).clip(0,255).astype(np.uint8)
-      glBindTexture(TEXTURE_TARGET, rgbtex)
-      glTexSubImage2D(TEXTURE_TARGET, 0, 0, 0, 640, 480, GL_RGB, GL_UNSIGNED_BYTE, rgb_);
 
     # flush that stack in case it's broken from earlier
+    try:
+      while glPopMatrix(): pass
+    except:
+      pass
+      
     glPushMatrix()
 
     glMatrixMode(GL_PROJECTION)
@@ -89,68 +102,51 @@ class PCLWindow(Window):
       glRotatef(yAngle, 0.0, 1.0, 0.0);
       glRotatef(zAngle, 0.0, 0.0, 1.0);
     glScale(self.zoomdist,self.zoomdist,1)
-    glTranslate(0, 0,-10.5)
+    glTranslate(0, 0,-3.5)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
-    #glTranslate(0,0,1.5)
+    glTranslate(0,0,1.5)
     #glTranslate(0, 0,-1)
 
-    # Draw some axes
-    if 0:
-      glBegin(GL_LINES)
-      glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-      glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-      glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-      glEnd()
+
+
+    glBindBuffer(GL_ARRAY_BUFFER, self.xyzbuf)
+    glVertexPointers(None)
+    glTexCoordPointer(3, GL_SHORT, 0, None)
+
+    glMatrixMode(GL_TEXTURE)
+    glLoadIdentity()
+    glMultMatrixf(calibkinect.uv_matrix().transpose())
+    glMultMatrixf(calibkinect.xyz_matrix().transpose())
+
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glMultMatrixf(calibkinect.xyz_matrix().transpose())
 
     # Draw the points
-    glPointSize(2)
+    glPointSize(1)
     glEnableClientState(GL_VERTEX_ARRAY)
-    glVertexPointerf(xyz)
-    if not uv is None:
-      glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-      glTexCoordPointerf(uv)
-      glEnable(TEXTURE_TARGET)
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+  
+    #if not rgb is None:
+    glEnable(TEXTURE_TARGET)
 
-    if not color is None:
-      glEnableClientState(GL_COLOR_ARRAY)
-      glColorPointerf(color)
-      glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
-      glEnable(GL_BLEND)
+    #if not color is None:
+      # glEnableClientState(GL_COLOR_ARRAY)
+      # glColorPointerf(color)
+      # glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
+      # glEnable(GL_BLEND)
+    
     glColor3f(1,1,1)
-
-    glDrawElementsui(GL_POINTS, np.array(range(len(xyz))))
+    glDrawElementsui(GL_POINTS, np.mgrid[:640*480])
     glDisableClientState(GL_COLOR_ARRAY)
     glDisableClientState(GL_VERTEX_ARRAY)
     glDisableClientState(GL_TEXTURE_COORD_ARRAY)
     glDisable(TEXTURE_TARGET)
     glDisable(GL_BLEND)
-
+    glPopMatrix()
+    
     self._wrap('on_draw_axes')
     
-    #
-    if 0:
-        inds = np.nonzero(xyz[:,2]>-0.55)
-        glPointSize(10)
-        glColor3f(0,1,1)
-        glEnableClientState(GL_VERTEX_ARRAY)
-        glDrawElementsui(GL_POINTS, np.array(inds))
-        glDisableClientState(GL_VERTEX_ARRAY)
-
-    if 0:
-        # Draw only the points in the near plane
-        glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
-        glEnable(GL_BLEND)
-        glColor(0.9,0.9,1.0,0.8)
-        glPushMatrix()
-        glTranslate(0,0,-0.55)
-        glScale(0.6,0.6,1)
-        glBegin(GL_QUADS)
-        glVertex3f(-1,-1,0); glVertex3f( 1,-1,0);
-        glVertex3f( 1, 1,0); glVertex3f(-1, 1,0);
-        glEnd()
-        glPopMatrix()
-        glDisable(GL_BLEND)
-
     glPopMatrix()
 
     

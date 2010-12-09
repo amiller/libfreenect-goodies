@@ -1,5 +1,6 @@
 import main
 from pclwindow import PCLWindow
+
 if not 'window' in main.__dict__: main.window = PCLWindow(size=(640,480))
 window = main.window
 import numpy as np
@@ -9,6 +10,13 @@ import scipy.optimize
 import pylab
 from OpenGL.GL import *
 import calibkinect
+
+import os
+import ctypes
+speedup = ctypes.cdll.LoadLibrary(os.path.dirname(__file__)+'/speedup_ctypes.so')
+matarg = np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags='C_CONTIGUOUS')
+speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, matarg, ctypes.c_int, ctypes.c_int]
+
 
   
 def project(depth, u, v):
@@ -50,18 +58,18 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
 def normal_show(nx,ny,nz):
   return np.dstack((nx/2+.5,ny/2+.5,nz/2+.5))
   
-
-def fast_normals(depth, u, v):
-  
+def normals_numpy(depth, u, v):
   from scipy.ndimage.filters import uniform_filter, convolve
+  
   depth = np.array(depth)
   depth[depth==2047] = -1e8
   depth = uniform_filter(depth, 6)
-  
-  #dx = convolve(depth, np.array([[1,0,-1]],np.int16))/np.float32(2.0)
-  #dy = convolve(depth, np.array([[1],[0],[-1]],np.int16))/np.float32(2.0)
+
   dx = (np.roll(depth,-1,1) - np.roll(depth,1,1))/2
   dy = (np.roll(depth,-1,0) - np.roll(depth,1,0))/2
+  #dx,dy = np.array(depth),np.array(depth)
+  #speedup.gradient(depth.ctypes.data, dx.ctypes.data, dy.ctypes.data, depth.shape[0], depth.shape[1])
+  
   X,Y,Z,W = -dx, -dy, 0*dy+1, -(-dx*u + -dy*v + depth).astype(np.float32)
   
   mat = np.linalg.inv(calibkinect.xyz_matrix()).transpose()
@@ -73,10 +81,28 @@ def fast_normals(depth, u, v):
   weights = z*0+1
   weights[depth<-1000] = 0
   weights[(z/w)<.1] = 0
-  
+  #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
-    
-def normal_compute(x,y,z):
+
+def normals_c(depth, u, v):
+  from scipy.ndimage.filters import uniform_filter, convolve
+
+  depth = np.array(depth)
+  depth[depth==2047] = -1e8
+  depth = uniform_filter(depth, 6)
+
+  x,y,z = np.array(depth), np.array(depth), np.array(depth)
+  mat = np.linalg.inv(calibkinect.xyz_matrix()).astype(np.float32).transpose()
+
+  speedup.normals(depth, u, v, x, y, z, mat, depth.shape[0], depth.shape[1])
+                  
+  weights = z*0+1
+  weights[depth<-1000] = 0
+  weights[z<.1] = 0
+
+  return np.dstack((x,y,z)), weights
+  
+def normals_gold(x,y,z):
   from scipy.ndimage.filters import uniform_filter
   
   # Compute the xx,xy,yx,yz moments
@@ -249,17 +275,41 @@ def play_movie():
     print r0 
     frame += 1
 
+import freenect
+import pylab
+def go():
+  global depth
+  while 1:
+    depth,_ = freenect.sync_get_depth()
+    show_opencl()
+    pylab.draw();
+    pylab.waitforbuttonpress(0.1)
 
+def show_opencl():              
+  def filter(depth,win,rect=((0,0),(640,480))):
+    (l,t),(r,b) = rect
+    filt = np.array(depth)
+    filt[t:b,l:r] = scipy.ndimage.uniform_filter(depth[t:b,l:r],win)
+    return filt
+    
+  rect = ((264,231),(434,371))
+  #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
+  #opencl.compute_filter(rect)
+  opencl.load_filt(filter(depth,8,rect))
+  opencl.compute_normals(rect)
+  n = opencl.get_normals()
+  imshow(n[:,:,:3]*np.dstack(3*[n[:,:,3]])/2+.5);
 
 if __name__ == "__main__":
   rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
-  v,u = np.mgrid[231:371,264:434]
+  #v,u = np.mgrid[231:371,264:434]
+  v,u = np.mgrid[:480,:640]
   r0 = [-0.63, 0.68, 0.17]
   
   x,y,z = project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
   # sub sample
   #n,weights = normal_compute(x,y,z)
-  n,weights = fast_normals(depth[v,u],u,v)
+  #n,weights = fast_normals2(depth[v,u],u.astype(np.float32),v.astype(np.float32))
   #update(x,y,z,u,v,rgb)
   #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 

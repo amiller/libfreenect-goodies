@@ -30,6 +30,15 @@ def matmul(name, mat):
     return (float4)(dot(%s,r1),dot(%s,r1),dot(%s,r1),dot(%s,r1));
     }  
     """ % (name, tup(0), tup(1), tup(2), tup(3))
+    
+def matmul3(name, mat):
+  def tup(i):
+    return '(float4)' + repr(tuple(mat[i].tolist()))
+  return """
+    float4 %s(const float4 r1) {
+    return (float4)(dot(%s,r1),dot(%s,r1),dot(%s,r1),0);
+    }  
+    """ % (name, tup(0), tup(1), tup(2))
 
 kernel_normals = """
 %s
@@ -40,7 +49,8 @@ const int FILT = 3;
 
 kernel void filter_compute(
   global float *output,
-  global short *input
+  global const short *input,
+  float4 bounds
 )
 {
  	unsigned int x = get_global_id(0);
@@ -50,9 +60,10 @@ kernel void filter_compute(
 	unsigned int index = (y * width) + x;
 	
   float o = 0;
-  if (x-FILT<0 || x+FILT>=width || y-FILT<0 || y+FILT>=height) return;
+  if (x<bounds[0] || x>=bounds[2] || y<bounds[1] || y>=bounds[3]) return;
+
 	for (int i = -FILT; i <= FILT; i++) {
-    int w = index+width*i;
+    int w = index+i*width;
 	  for (int j = -FILT; j <= FILT; j++) {
 	    o += input[w+j];
 	  }
@@ -60,54 +71,11 @@ kernel void filter_compute(
   output[index] = o / ((FILT*2+1)*(FILT*2+1));
 }
 
-kernel void filter_compute_im(
-  global float *output,
-  read_only image2d_t depth,
-  sampler_t sampler
-)
-{
- 	unsigned int x = get_global_id(0);
-  unsigned int y = get_global_id(1);
-	unsigned int width = get_global_size(0);
-	unsigned int height = get_global_size(1);
-	unsigned int index = (y * width) + x;
-	
-  float o = 0;
-  
-	for (int i = -FILT; i <= FILT; i++) {
-	  for (int j = -FILT; j <= FILT; j++) {
-	    o += read_imagef(depth, sampler, (int2)(x+i,y+j)).x;
-	  }
-  }
-  output[index] = o / ((FILT*2+1)*(FILT*2+1));
-}
-kernel void filter_compute_im2(
-  write_only image2d_t output,
-  read_only image2d_t depth,
-  sampler_t sampler
-)
-{
- 	unsigned int x = get_global_id(0);
-  unsigned int y = get_global_id(1);
-	unsigned int width = get_global_size(0);
-	unsigned int height = get_global_size(1);
-	unsigned int index = (y * width) + x;
-	
-  float o = 0;
-  
-	for (int i = -FILT; i <= FILT; i++) {
-	  for (int j = -FILT; j <= FILT; j++) {
-	    o += read_imagef(depth, sampler, (int2)(x+i,y+j)).x;
-	  }
-  }
-  write_imagef(output, (int2)(x,y),  (float4)(o / ((FILT*2+1)*(FILT*2+1))));
-}
-
 // Main Kernel code
 kernel void normal_compute(
 	global float4 *output,
-	global const short *depth,
-	sampler_t sampler
+	global const float *filt,
+	float4 bounds
 )
 {	
 	unsigned int x = get_global_id(0);
@@ -115,13 +83,21 @@ kernel void normal_compute(
 	unsigned int width = get_global_size(0);
 	unsigned int height = get_global_size(1);
 	unsigned int index = (y * width) + x;
-
-	float dx = ((x+0.5) / (float) width)*2.0f-1.0f; // 0.5 increment is to reach the center of the pixel.
-	float dy = ((y+0.5) / (float) height)*2.0f-1.0f;
 	
-	output[index] = (float4)(0,1,2,3);
+	if (x<bounds[0] || x>=bounds[2] || y<bounds[1] || y>=bounds[3]) return;
+
+  float dx = (filt[index+1] - filt[index-1])/2;
+  float dy = (filt[index+width] - filt[index-width])/2;
+
+  float4 XYZW = (float4)(-dx, -dy, 1, -(-dx*x + -dy*y + filt[index]));
+  float4 xyz = mult_xyz(XYZW);
+  xyz = normalize(xyz);
+  if (xyz.z < 0) xyz = -xyz;
+  xyz.w = 1*(xyz.z>.1)*(filt[index]<2047)*(fabs(dx)+fabs(dy)<10);
+  	
+	output[index] = xyz;
 }
-""" % matmul('mult_xyz', calibkinect.xyz_matrix())
+""" % matmul3('mult_xyz', np.linalg.inv(calibkinect.xyz_matrix()).transpose())
 
 program = cl.Program(context, kernel_normals).build("-cl-mad-enable")
 print program.get_build_info(context.devices[0], cl.program_build_info.LOG)
@@ -130,44 +106,50 @@ def print_all():
   print_info(program.normal_compute, cl.kernel_info)
   print_info(queue, cl.command_queue_info)
   
-print_all()
+#print_all()
 normals = np.empty((480,640,4),'f')
-normals_buf = cl.Buffer(context, mf.WRITE_ONLY, normals.nbytes)
+normals_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
-depth_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.UNORM_INT16)
-depth_img = cl.Image(context, mf.READ_ONLY, depth_fmt, shape=(480,640))
+#depth_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.UNORM_INT16)
+#depth_img = cl.Image(context, mf.READ_ONLY, depth_fmt, shape=(480,640))
 depth_buf = cl.Buffer(context, mf.READ_ONLY, 480*640*2)
 
-filt_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
-filt_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
+#filt_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
+#filt_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
 filt_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4)
 
-norm_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
-norm_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
-
+#norm_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
+#norm_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
+norm_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
 def load_depth(depth):
   assert depth.dtype == np.int16
   assert depth.shape == (480,640)
   cl.enqueue_write_buffer(queue, depth_buf, depth).wait()
-  df = np.empty((480,640,4),np.int16)
-  df[:,:,0] = depth
-  cl.enqueue_write_image(queue, depth_img, (0,0), (480,640), df).wait()
+  #df = np.empty((480,640,4),np.int16)
+  #df[:,:,0] = depth
+  #cl.enqueue_write_image(queue, depth_img, (0,0), (480,640), df).wait()
   
-def compute_filter():
-  off = 3
-  #program.filter_compute(queue, (480-off*2,640-off*2), None, filt_buf, depth_buf, global_offset=(off,off)).wait()
-  #program.filter_compute(queue, (480,640), None, filt_buf, depth_buf, global_offset=(off,off)).wait()
-  #program.filter_compute_im(queue, (480,640), None, filt_buf, depth_img, sampler).wait()
-  #program.filter_compute_im2(queue, (480,640), None, filt_img, depth_img, sampler).wait()
+def load_filt(filt):
+  assert filt.dtype == np.float32
+  assert filt.shape == (480,640)
+  return cl.enqueue_write_buffer(queue, filt_buf, filt).wait()
+  
+def compute_filter(rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect; F = 7; bounds = np.array((L+F,T+F,R-F,B-F),'f')
+  return program.filter_compute(queue, (640,480), None, filt_buf, depth_buf, bounds).wait()
+  #program.filter_compute(queue, (640-off,480-off), None, filt_buf, depth_buf, global_offset=(off,off)).wait()
   
 def get_filter():
   filt = np.empty((480,640),'f')
   cl.enqueue_read_buffer(queue, filt_buf, filt).wait()
   return filt
   
-def compute_normals(rect=((0,480),(0,640))):
-  program.normal_compute(queue, normals.shape[:2], None, normals_buf, depth_buf, sampler)
+def get_normals():
   cl.enqueue_read_buffer(queue, normals_buf, normals).wait()
   return normals
+  
+def compute_normals(rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect; F = 1; bounds = np.array((L+F,T+F,R-F,B-F),'f')
+  return program.normal_compute(queue, (640,480), None, normals_buf, filt_buf, bounds).wait()
 	
