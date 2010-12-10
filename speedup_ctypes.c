@@ -22,9 +22,9 @@ void normals(float *depth,
   int i, j;
   for (i = 1; i < h-1; i++) {
     for (j = 1; j < w-1; j++) {
-      float dx = (depth[i*w+j+1] - depth[i*w+j-1]);
-      float dy = (depth[(i+1)*w+j] - depth[(i-1)*w+j]);
-      float X=-dx, Y=-dy, Z=1, W=-(-dx*u[i*w+j] + -dy*v[i*w+j] + 1);
+      float dx = (depth[i*w+j+1] - depth[i*w+j-1])/2;
+      float dy = (depth[(i+1)*w+j] - depth[(i-1)*w+j])/2;
+      float X=-dx, Y=-dy, Z=1, W=-(-dx*u[i*w+j] + -dy*v[i*w+j] + depth[i*w+j]);
       
       float x = X*mat[0][0] + Y*mat[0][1] + Z*mat[0][2] + W*mat[0][3];
       float y = X*mat[1][0] + Y*mat[1][1] + Z*mat[1][2] + W*mat[1][3];

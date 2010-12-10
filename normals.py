@@ -1,69 +1,49 @@
-import main
-from pclwindow import PCLWindow
-
-if not 'window' in main.__dict__: main.window = PCLWindow(size=(640,480))
-window = main.window
 import numpy as np
 import expmap
 import scipy
 import scipy.optimize
 import pylab
 from OpenGL.GL import *
+from OpenGL.GL.ARB.vertex_buffer_object import *
 import calibkinect
+import opencl
 
 import os
 import ctypes
-speedup = ctypes.cdll.LoadLibrary(os.path.dirname(__file__)+'/speedup_ctypes.so')
+try:
+  speedup = ctypes.cdll.LoadLibrary(os.path.dirname(__file__)+'/speedup_ctypes.so')
+except:
+  speedup = ctypes.cdll.LoadLibrary('speedup_ctypes.so')
 matarg = np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags='C_CONTIGUOUS')
 speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, matarg, ctypes.c_int, ctypes.c_int]
 
 
-  
-def project(depth, u, v):
-  X,Y,Z = u,v,depth
-  mat = calibkinect.xyz_matrix()
-  x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + mat[0,3]
-  y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
-  z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
-  w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
-  return x/w, y/w, z/w
-  
-def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
-  global window
-  xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
-  mask = Z.flatten()<10
-  xyz = xyz[mask,:]
-  window.XYZ = xyz
-  
-  global axes_rotation
-  axes_rotation = np.eye(4)
-  if not AXES is None:
-    # Rotate the axes
-    axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
-  
-  if not UV is None:
-    U,V = UV
-    uv = np.vstack((U.flatten(),V.flatten())).transpose()
-    uv = uv[mask,:]
-    
-  if not COLOR is None:
-    R,G,B,A = COLOR
-    color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
-    color = color[mask,:]
-    
-  window.UV = uv if UV else None
-  window.COLOR = color if COLOR else None
-  window.RGB = rgb
+
+def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
+  (l,t),(r,b) = rect
+  assert depth.dtype == np.float32
+  global filt
+  filt = np.empty_like(depth)
+  filt[t:b,l:r] = scipy.ndimage.uniform_filter(depth[t:b,l:r],win)
+  #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
+  #opencl.compute_filter(rect)
+  opencl.load_filt(filt,rect)
+  opencl.compute_normals(rect)
+  n = opencl.get_normals()[t:b,l:r]
+  return n, n[:,:,3]
+ 
   
 def normal_show(nx,ny,nz):
   return np.dstack((nx/2+.5,ny/2+.5,nz/2+.5))
   
-def normals_numpy(depth, u, v):
+def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
+  assert depth.dtype == np.float32
   from scipy.ndimage.filters import uniform_filter, convolve
-  
-  depth = np.array(depth)
+  (l,t),(r,b) = rect
+  v,u = np.mgrid[t:b,l:r]
+  depth = depth[v,u]
   depth[depth==2047] = -1e8
-  depth = uniform_filter(depth, 6)
+  depth = uniform_filter(depth, win)
 
   dx = (np.roll(depth,-1,1) - np.roll(depth,1,1))/2
   dy = (np.roll(depth,-1,0) - np.roll(depth,1,0))/2
@@ -72,7 +52,7 @@ def normals_numpy(depth, u, v):
   
   X,Y,Z,W = -dx, -dy, 0*dy+1, -(-dx*u + -dy*v + depth).astype(np.float32)
   
-  mat = np.linalg.inv(calibkinect.xyz_matrix()).transpose()
+  mat = np.linalg.inv(calibkinect.xyz_matrix()).astype('f').transpose()
   x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + W*mat[0,3]
   y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + W*mat[1,3]
   z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + W*mat[2,3]
@@ -84,17 +64,20 @@ def normals_numpy(depth, u, v):
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
 
-def normals_c(depth, u, v):
+
+def normals_c(depth, rect=((0,0),(640,480)), win=7):
+  assert depth.dtype == np.float32
   from scipy.ndimage.filters import uniform_filter, convolve
-
-  depth = np.array(depth)
+  (l,t),(r,b) = rect
+  v,u = np.mgrid[t:b,l:r]
+  depth = depth[v,u]
   depth[depth==2047] = -1e8
-  depth = uniform_filter(depth, 6)
+  depth = uniform_filter(depth, win)
 
-  x,y,z = np.array(depth), np.array(depth), np.array(depth)
-  mat = np.linalg.inv(calibkinect.xyz_matrix()).astype(np.float32).transpose()
+  x,y,z = [np.empty_like(depth) for i in range(3)]
+  mat = np.linalg.inv(calibkinect.xyz_matrix()).astype('f').transpose()
 
-  speedup.normals(depth, u, v, x, y, z, mat, depth.shape[0], depth.shape[1])
+  speedup.normals(depth.astype('f'), u.astype('f'), v.astype('f'), x, y, z, mat, depth.shape[0], depth.shape[1])
                   
   weights = z*0+1
   weights[depth<-1000] = 0
@@ -135,20 +118,7 @@ def normals_gold(x,y,z):
     
   return normals, np.power(weights,40)
 
-axes_rotation = np.eye(4)
-@window.event
-def on_draw_axes():
-  # Draw some axes
-  glLineWidth(3)
-  glPushMatrix()
-  glMultMatrixf(axes_rotation.transpose())
-  glScalef(1.5,1.5,1.5)
-  glBegin(GL_LINES)
-  glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-  glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-  glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-  glEnd()
-  glPopMatrix()
+
 
 # Color score
 def color_axis(normals,d=0.1):
@@ -173,7 +143,7 @@ def mean_shift_optimize(normals, weights, r0=np.array([0,0,0])):
     R,G,B = color_axis(n,d)
     #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
     #update(normals[:,:,0],normals[:,:,1],normals[:,:,2], 
-    #      COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat))
+    #     COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat))
     #window.Refresh()
     #pylab.waitforbuttonpress(0.001)
     cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
@@ -202,12 +172,13 @@ def apply_rot(rot, xyz):
   flat = np.rollaxis(xyz,2).reshape((3,-1))
   xp = np.dot(rot, flat)
   return xp.transpose().reshape(xyz.shape)
-  
+
 
 def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
   import mpl_toolkits.mplot3d.axes3d as mp3
   rangex = np.arange(-0.6,0.6,0.06)
   rangey = np.arange(-0.6,0.6,0.06)
+  
   def err(x):
     rot = expmap.axis2rot(x)
     n = apply_rot(rot, normals)
@@ -232,7 +203,8 @@ def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
 def go():
   while 1:
     x0 = (np.random.rand(3)*2-1)*0.5 + np.array(r0)
-    print mean_shift_optimize(n, weights, x0)
+    x,w = mean_shift_optimize(n, weights, x0)
+    print x
     #print optimize_normals(n, weights, x0)
   
   
@@ -278,7 +250,7 @@ def play_movie():
 
 import freenect
 import pylab
-def go():
+def go_():
   global depth
   while 1:
     depth,_ = freenect.sync_get_depth()
@@ -286,37 +258,93 @@ def go():
     pylab.draw();
     pylab.waitforbuttonpress(0.1)
 
+
+
+
+def project(depth, u, v):
+   X,Y,Z = u,v,depth
+   mat = calibkinect.xyz_matrix()
+   x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + mat[0,3]
+   y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
+   z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
+   w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
+   return x/w, y/w, z/w
+
+def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
+   global window
+   xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
+   mask = Z.flatten()<10
+   xyz = xyz[mask,:]
+   window.XYZ = xyz
+
+   global axes_rotation
+   axes_rotation = np.eye(4)
+   if not AXES is None:
+     # Rotate the axes
+     axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
+
+   if not UV is None:
+     U,V = UV
+     uv = np.vstack((U.flatten(),V.flatten())).transpose()
+     uv = uv[mask,:]
+
+   if not COLOR is None:
+     R,G,B,A = COLOR
+     color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
+     color = color[mask,:]
+
+   window.UV = uv if UV else None
+   window.COLOR = color if COLOR else None
+   window.RGB = rgb
+
+  
 def show_opencl():              
-  def filter(depth,win,rect=((0,0),(640,480))):
-    (l,t),(r,b) = rect
-    filt = np.array(depth)
-    filt[t:b,l:r] = scipy.ndimage.uniform_filter(depth[t:b,l:r],win)
-    return filt
-    
-  rect = ((264,231),(434,371))
-  #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
-  #opencl.compute_filter(rect)
-  opencl.load_filt(filter(depth,8,rect))
-  opencl.compute_normals(rect)
-  n = opencl.get_normals()
+
   imshow(n[:,:,:3]*np.dstack(3*[n[:,:,3]])/2+.5);
 
+
 if __name__ == "__main__":
-  rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
-  #v,u = np.mgrid[231:371,264:434]
-  v,u = np.mgrid[:480,:640]
+  import main
+  from visuals.normalswindow import PCLWindow
+
+  if not 'window' in main.__dict__: main.window = PCLWindow(size=(640,480))
+  window = main.window
+  
+  axes_rotation = np.eye(4)
+  @window.event
+  def on_draw_axes():
+ 
+    # Draw some axes
+    glLineWidth(3)
+    glPushMatrix()
+    glMultMatrixf(axes_rotation.transpose())
+    glScalef(1.5,1.5,1.5)
+    glBegin(GL_LINES)
+    glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+    glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+    glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+    glEnd()
+    glPopMatrix()
+  
+  rgb, depth = [x[1].astype('f') for x in np.load('data/block2.npz').items()]
+  rect =((264,231),(434,371))
+  
+  v,u = np.mgrid[231:371,264:434]
+  #v,u = np.mgrid[:480,:640]
   r0 = [-0.63, 0.68, 0.17]
   
   x,y,z = project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
   # sub sample
   #n,weights = normal_compute(x,y,z)
-  #n,weights = fast_normals2(depth[v,u],u.astype(np.float32),v.astype(np.float32))
+  #n,weights = normals_numpy(depth,rect)
+  #n,weights = normals_c(depth,rect)
+  n,weights = normals_opencl(depth,rect)
   #update(x,y,z,u,v,rgb)
   #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
 
   update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
   R,G,B = color_axis(n)
-  update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,R+G+B))
+  update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,weights*(R+G+B)))
   import cv
 
   window.Refresh()

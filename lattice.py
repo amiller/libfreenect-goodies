@@ -1,7 +1,3 @@
-import main
-from pclwindow import PCLWindow
-if not 'window' in main.__dict__: main.window = PCLWindow(size=(640,480))
-window = main.window
 import numpy as np
 import expmap
 import scipy
@@ -22,11 +18,36 @@ def color_axis(normals,d=0.1):
   cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
   cx = [np.max((1.0-(c/d*c/d),0*c),0) for c in cc]
   return [c * 0.8 + 0.2 for c in cx]
+  
+  
+def voxels():
+  global votes
+  xv = (rotpts[cc[0]>0]-[meanx+mx,meany+my,meanz+mz])/[0.0158,0.0196,0.0158]-[.5,0,0]
+  yv = (rotpts[cc[1]>0]-[meanx+mx,meany+my,meanz+mz])/[0.0158,0.0196,0.0158]-[0,.5,0]
+  zv = (rotpts[cc[2]>0]-[meanx+mx,meany+my,meanz+mz])/[0.0158,0.0196,0.0158]-[0,0,.5]
+  
+  figure(4)
+  clf();
+  scatter(xv[:,0]+.5,xv[:,2])
+  scatter(zv[:,0],zv[:,2]+.5,c='r')
+  votes = np.floor(np.vstack((xv,zv)))
+  scatter(votes[:,0],votes[:,2],c='g')
+  pylab.draw()
+  
+  mins = votes.min(0)
+  maxs = votes.max(0)
+  global bins
+  bins = [np.arange(mins[i],maxs[i]+2)-.5 for i in range(3)]
+  global H
+  H,_ = np.histogramdd(votes, bins)
+  global legos
+  legos = np.array(np.nonzero(H > 30)).transpose() + mins
+  
 
 def show_projections(rotpts,cc,weights,rotn):
   from pylab import figure, title, clf, gca, scatter, grid
-  figure(1)
-  global meanx, meany
+  
+  global meanx, meany, meanz, mx, my, mz
   meanx = circular_mean(rotpts[:,:,0][cc[0,:,:]>0],0.0158)
   meany = circular_mean(rotpts[:,:,1][cc[1,:,:]>0],0.0196)
   meanz = circular_mean(rotpts[:,:,2][cc[2,:,:]>0],0.0158)
@@ -40,7 +61,8 @@ def show_projections(rotpts,cc,weights,rotn):
          rotpts[:,:,2][weights>0]-mz-meanz,COLOR=(R,G,B,R+G+B))
   window.Refresh()
 
-  clf(); 
+  figure(1)
+  clf();
   title('height vs Z')
   xlabel('Z (meters)')
   ylabel('Height/Y (meters)')
@@ -116,40 +138,79 @@ def play_movie():
     show_projections(rotpts,cc,weights,rotn)
     print r0 
     frame += 1
-
-#depth, rgb = [x[1] for x in np.load('data/ceiling.npz').items()]
-# rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block1.npz').items()]
-# v,u = np.mgrid[160:282,330:510]
-# r0 = np.array([-0.7,-0.2,0])
-rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
-v,u = np.mgrid[231:371,264:434]
-r0 = [-0.63, 0.68, 0.17]
-# depth = np.load('data/movies/test/depth_00000.npz').items()[0][1].astype(np.float32)
-# v,u = np.mgrid[175:332,365:485]
-# r0 = [-0.7626858, 0.28330218, 0.17082515]
-# depth = np.load('data/movies/single/depth_00000.npz').items()[0][1]
-# v,u = np.mgrid[146:202,344:422]
-# r0 = np.array([-0.7,-0.2,0])
-
-x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
-
-# sub sample
-n,weights = normals.fast_normals(depth[v,u],u.astype(np.float32),v.astype(np.float32))
-#update(x,y,z,u,v,rgb)
-#update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
-
-#update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
-R,G,B = normals.color_axis(n)
-normals.update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,R+G+B))
-import cv
-
-rotaxis, cc = normals.mean_shift_optimize(n,weights, np.array(r0))
-rot = expmap.axis2rot(rotaxis)
-rotpts = normals.apply_rot(rot, np.dstack((x,y,z)))
-rotn = normals.apply_rot(rot, n)
-from pylab import *
-show_projections(rotpts,cc,weights,rotn)
+    
+if __name__ == "__main__":
+  from visuals.normalswindow import PCLWindow
+  if not 'window' in globals(): window = PCLWindow(size=(640,480))
 
 
-window.Refresh()
+  #depth, rgb = [x[1] for x in np.load('data/ceiling.npz').items()]
+  # rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block1.npz').items()]
+  # rect = ((330,160),(510,282))
+  # r0 = np.array([-0.7,-0.2,0])
+  rgb, depth = [x[1].astype(np.float32) for x in np.load('data/block2.npz').items()]
+  rect = ((264,231),(434,371))
+  r0 = [-0.63, 0.68, 0.17]
+  # depth = np.load('data/movies/test/depth_00000.npz').items()[0][1].astype(np.float32)
+  # v,u = np.mgrid[175:332,365:485]
+  # r0 = [-0.7626858, 0.28330218, 0.17082515]
+  # depth = np.load('data/movies/single/depth_00000.npz').items()[0][1]
+  # v,u = np.mgrid[146:202,344:422]
+  # r0 = np.array([-0.7,-0.2,0])
+  
+  (l,t),(r,b) = rect
+  v,u = np.mgrid[t:b,l:r]
+
+  if 1:
+    x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
+
+    # sub sample
+    n,weights = normals.normals_c(depth,rect)
+    #update(x,y,z,u,v,rgb)
+    #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
+
+    #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
+    #R,G,B = normals.color_axis(n)
+    #normals.update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,R+G+B))
+    import cv
+
+    rotaxis, cc = normals.mean_shift_optimize(n,weights, np.array(r0))
+    rot = expmap.axis2rot(rotaxis)
+    rotpts = normals.apply_rot(rot, np.dstack((x,y,z)))
+    rotn = normals.apply_rot(rot, n)
+    from pylab import *
+    show_projections(rotpts,cc,weights,rotn)
+
+  voxels()
+  window.Refresh()
+  
+  from visuals.legowindow import PCLWindow as LW
+  if not 'legowindow' in globals(): legowindow = LW()
+  
+  @legowindow.event
+  def on_draw_axes():
+
+    glPushMatrix()
+    glColor(0,1,0,0.5)
+    glTranslate(0,0,-1.5)
+    glScale(0.0158,0.0196,0.0158)
+    glBegin(GL_QUADS)
+    for x,y,z in legos:
+      for q in     [[[1,1,0],[0,1,0],[0,1,1],[1,1,1]], \
+                    [[1,0,1],[0,0,1],[0,0,0],[1,0,0]], \
+                    [[1,1,1],[0,1,1],[0,0,1],[1,0,1]], \
+                    [[1,0,0],[0,0,0],[0,1,0],[1,1,0]], \
+                    [[0,1,1],[0,1,0],[0,0,0],[0,0,1]], \
+                    [[1,1,0],[1,1,1],[1,0,1],[1,0,0]]]:
+        normal = np.cross(np.subtract(q[0],q[1]),np.subtract(q[0],q[2]))
+        glColor(*np.abs(normal))
+        for i,j,k in q:
+          glVertex(x+i,y+j,z+k)
+        
+    glEnd()
+    glPopMatrix()
+    glDisable(GL_LIGHTING)
+    glDisable(GL_COLOR_MATERIAL)
+  legowindow.Refresh()
+      
 

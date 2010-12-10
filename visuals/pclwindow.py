@@ -91,8 +91,6 @@ class PCLWindow(Window):
     except:
       pass
       
-    glPushMatrix()
-
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluPerspective(60, 4/3., 0.3, 200)
@@ -151,7 +149,5 @@ class PCLWindow(Window):
     glPopMatrix()
     
     self._wrap('on_draw_axes')
-    
-    glPopMatrix()
 
     

@@ -17,7 +17,6 @@ def print_info(obj, info_cls):
             print "%s: %s" % (info_name, info_value)
 
 context = cl.Context(dev_type = cl.device_type.GPU)
-print_info(context.devices[0], cl.device_info)
 queue = cl.CommandQueue(context)
 mf = cl.mem_flags
 sampler = cl.Sampler(context, True, cl.addressing_mode.CLAMP, cl.filter_mode.LINEAR)
@@ -102,6 +101,7 @@ kernel void normal_compute(
 program = cl.Program(context, kernel_normals).build("-cl-mad-enable")
 print program.get_build_info(context.devices[0], cl.program_build_info.LOG)
 def print_all():
+  print_info(context.devices[0], cl.device_info)
   print_info(program, cl.program_info)
   print_info(program.normal_compute, cl.kernel_info)
   print_info(queue, cl.command_queue_info)
@@ -130,9 +130,11 @@ def load_depth(depth):
   #df[:,:,0] = depth
   #cl.enqueue_write_image(queue, depth_img, (0,0), (480,640), df).wait()
   
-def load_filt(filt):
+def load_filt(filt, rect=((0,0),(640,480))):
   assert filt.dtype == np.float32
   assert filt.shape == (480,640)
+  (l,t),(r,b) = rect
+  #return cl.enqueue_write_buffer_rect(queue, filt_buf, filt, rect[0],rect[0],(r-l,b-t),640,640).wait()
   return cl.enqueue_write_buffer(queue, filt_buf, filt).wait()
   
 def compute_filter(rect=((0,0),(640,480))):

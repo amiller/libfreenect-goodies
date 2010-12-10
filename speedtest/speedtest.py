@@ -1,5 +1,4 @@
 import numpy as np
-import timeit
 import speedup_cython
 
 import ctypes

@@ -1,7 +1,7 @@
 import sys
 sys.path += ['..']
 
-from pclwindow import PCLWindow as Window
+from visuals.pclwindow import PCLWindow as Window
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -100,14 +100,14 @@ def on_draw_axes():
     glEnd()
   
   update_balls(0.03)
+  glEnable(GL_LIGHT0)
+  glEnable(GL_LIGHTING)
+  glEnable(GL_COLOR_MATERIAL)
+  glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
   for ball in balls:
-    glEnable(GL_LIGHT0)
-    glEnable(GL_LIGHTING)
-    glEnable(GL_COLOR_MATERIAL)
-    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
     ball.draw()
-    glDisable(GL_LIGHTING)
-    glDisable(GL_COLOR_MATERIAL)
+  glDisable(GL_LIGHTING)
+  glDisable(GL_COLOR_MATERIAL)
   
 def update(dt=0):
   global rgb, depth
