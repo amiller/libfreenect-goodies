@@ -1,0 +1,4 @@
+*.pyc
+build
+_pyxbld
+*.DS_Store
