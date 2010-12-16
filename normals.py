@@ -1,6 +1,7 @@
 import numpy as np
 import expmap
 import scipy
+import scipy.ndimage
 import scipy.optimize
 import pylab
 from OpenGL.GL import *
@@ -22,6 +23,7 @@ speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, ma
 def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
   (l,t),(r,b) = rect
   assert depth.dtype == np.float32
+  depth[depth==2047] = -1e8
   global filt
   filt = np.empty_like(depth)
   filt[t:b,l:r] = scipy.ndimage.uniform_filter(depth[t:b,l:r],win)
@@ -30,7 +32,7 @@ def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
   opencl.load_filt(filt,rect)
   opencl.compute_normals(rect)
   n = opencl.get_normals()[t:b,l:r]
-  return n, n[:,:,3]
+  return n[:,:,:3], n[:,:,3]
  
   
 def normal_show(nx,ny,nz):
@@ -85,40 +87,6 @@ def normals_c(depth, rect=((0,0),(640,480)), win=7):
 
   return np.dstack((x,y,z)), weights
   
-def normals_gold(x,y,z):
-  from scipy.ndimage.filters import uniform_filter
-  
-  # Compute the xx,xy,yx,yz moments
-  moments = np.zeros((3,3,x.shape[0],x.shape[1]))
-  sums = np.zeros((3,x.shape[0],x.shape[1]))
-  covs = np.zeros((3,3,x.shape[0],x.shape[1]))
-  xyz = [x,y,z]
-  filt = 8
-  
-  for i in range(3):
-    sums[i] = uniform_filter(xyz[i], filt)
-  for i in range(3):
-    for j in range(i,3):
-      m = uniform_filter(xyz[i] * xyz[j], filt)
-      moments[i,j,:,:] = moments[j,i,:,:] = m
-      covs[i,j,:,:] = covs[j,i,:,:] = m - sums[i] * sums[j]
-
-  normals = np.zeros((x.shape[0],x.shape[1],3))
-  weights = np.zeros((x.shape[0],x.shape[1]))
-  for m in range(x.shape[0]):
-    for n in range(x.shape[1]):
-      # Find the normal vector
-      w,v = np.linalg.eig(covs[:,:,m,n])
-      ids = np.argsort(np.real(w)) # Find the index of the minimum eigenvalue
-      #normals[m,n,:] = np.cross(v[:,ids[2]], v[:,ids[1]])
-      normals[m,n,:] = v[:,ids[0]]
-      if normals[m,n,:][2] < 0: normals[m,n,:] *= -1
-      ww = w*w
-      weights[m,n] = 1.0 - np.max(ww[ids[0]]/ww[ids[1]], ww[ids[0]]/ww[ids[2]])
-    
-  return normals, np.power(weights,40)
-
-
 
 # Color score
 def color_axis(normals,d=0.1):
@@ -300,14 +268,14 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   
 def show_opencl():              
 
-  imshow(n[:,:,:3]*np.dstack(3*[n[:,:,3]])/2+.5);
+  imshow(n*np.dstack(3*[weights])/2+.5);
 
 
 if __name__ == "__main__":
   import main
-  from visuals.normalswindow import PCLWindow
+  from visuals.normalswindow import NormalsWindow
 
-  if not 'window' in main.__dict__: main.window = PCLWindow(size=(640,480))
+  if not 'window' in main.__dict__: main.window = NormalsWindow(size=(640,480))
   window = main.window
   
   axes_rotation = np.eye(4)

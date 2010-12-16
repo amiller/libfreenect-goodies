@@ -58,8 +58,7 @@ class Ball(object):
         global rect
         rect = (u-6,v-6),(u+6,v+6)
         (l,t),(r,b) = rect
-        self.d,(self.u,self.v) = depth[t:b,l:r], np.mgrid[t:b,l:r]
-        self.n,self.w = normals.normals_c(self.d.astype('f'),self.u.astype('f'),self.v.astype('f'))
+        self.n,self.w = normals.normals_c(depth,rect)
         n = self.n[self.n.shape[0]/2,self.n.shape[1]/2]
         
         if np.dot(n,self.vel) < 0:

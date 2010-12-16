@@ -44,7 +44,8 @@ class Window(wx.Frame):
 
         attribList = (glcanvas.WX_GL_RGBA, # RGBA
                       glcanvas.WX_GL_DOUBLEBUFFER, # Double Buffered
-                      glcanvas.WX_GL_DEPTH_SIZE, 24) # 24 bit
+                      glcanvas.WX_GL_DEPTH_SIZE, 24, # 24 bit depth
+                      glcanvas.WX_GL_STENCIL_SIZE, 8)
               
         self.canvas = glcanvas.GLCanvas(self, attribList=attribList)
 

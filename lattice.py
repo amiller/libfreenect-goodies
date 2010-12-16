@@ -161,7 +161,7 @@ if __name__ == "__main__":
   (l,t),(r,b) = rect
   v,u = np.mgrid[t:b,l:r]
 
-  if 1:
+  if 0 or not 'n' in globals():
     x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
 
     # sub sample
@@ -185,8 +185,26 @@ if __name__ == "__main__":
   window.Refresh()
   
   from visuals.legowindow import PCLWindow as LW
-  if not 'legowindow' in globals(): legowindow = LW()
-  
+  if not 'legowindow' in globals(): 
+    legowindow = LW()
+    legolist = glGenLists(1)
+    
+    
+  def build_list():
+    glNewList(legolist, GL_COMPILE) # Build a list for the frustum
+    for q in     [[[1,1,0],[0,1,0],[0,1,1],[1,1,1]], \
+                  [[1,0,1],[0,0,1],[0,0,0],[1,0,0]], \
+                  [[1,1,1],[0,1,1],[0,0,1],[1,0,1]], \
+                  [[1,0,0],[0,0,0],[0,1,0],[1,1,0]], \
+                  [[0,1,1],[0,1,0],[0,0,0],[0,0,1]], \
+                  [[1,1,0],[1,1,1],[1,0,1],[1,0,0]]]:
+        glBegin(GL_LINE_STRIP)
+        glVertex(*q[0]); glVertex(*q[1]); glVertex(*q[2]); glVertex(*q[3]); glVertex(*q[0])
+        glEnd()
+    glEndList()
+    
+  build_list()
+
   @legowindow.event
   def on_draw_axes():
 
@@ -194,6 +212,10 @@ if __name__ == "__main__":
     glColor(0,1,0,0.5)
     glTranslate(0,0,-1.5)
     glScale(0.0158,0.0196,0.0158)
+    glPolygonOffset(1.0,0.2)
+    #glEnable(GL_LINE_SMOOTH)
+    #glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
+    glEnable(GL_POLYGON_OFFSET_FILL)
     glBegin(GL_QUADS)
     for x,y,z in legos:
       for q in     [[[1,1,0],[0,1,0],[0,1,1],[1,1,1]], \
@@ -206,8 +228,15 @@ if __name__ == "__main__":
         glColor(*np.abs(normal))
         for i,j,k in q:
           glVertex(x+i,y+j,z+k)
-        
     glEnd()
+    glDisable(GL_POLYGON_OFFSET_FILL)
+    
+    glColor(1,1,1)
+    for x,y,z in legos:
+      glPushMatrix()
+      glTranslate(x,y,z)
+      glCallList(legolist)
+      glPopMatrix()
     glPopMatrix()
     glDisable(GL_LIGHTING)
     glDisable(GL_COLOR_MATERIAL)

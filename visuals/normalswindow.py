@@ -1,53 +1,19 @@
-from pykinectwindow import Window
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL.ARB.vertex_buffer_object import *
 import calibkinect
-
-# I probably need more help with these!
-try: 
-  TEXTURE_TARGET = GL_TEXTURE_RECTANGLE
-except:
-  TEXTURE_TARGET = GL_TEXTURE_RECTANGLE_ARB
+from camerawindow import CameraWindow
 
 # Window for drawing point clouds
-class PCLWindow(Window):
+class NormalsWindow(CameraWindow):
   
   def __init__(self, *args, **kwargs):
-    super(PCLWindow,self).__init__(*args, **kwargs)
-    self.rotangles = [0,0]
-    self.zoomdist = 1
+    super(NormalsWindow,self).__init__(*args, **kwargs)
     self.XYZ = None
     self.UV = None
     self.COLOR = None
-    self._mpos = None
     
-    @self.eventx
-    def EVT_LEFT_DOWN(event):
-      self._mpos = event.Position
-
-    @self.eventx
-    def EVT_LEFT_UP(event):
-      self._mpos = None
-
-    @self.eventx
-    def EVT_MOTION(event):
-      if event.LeftIsDown():
-        if self._mpos:
-          (x,y),(mx,my) = event.Position,self._mpos
-          self.rotangles[0] += y-my
-          self.rotangles[1] += x-mx
-          self.Refresh()    
-        self._mpos = event.Position
-
-
-    @self.eventx
-    def EVT_MOUSEWHEEL(event):
-      dy = event.WheelRotation
-      self.zoomdist *= np.power(0.95, -dy)
-      self.Refresh()
-
   def on_draw(self):  
     
     clearcolor = [0,0,0,0]
@@ -90,10 +56,6 @@ class PCLWindow(Window):
     glPointSize(2)
     glEnableClientState(GL_VERTEX_ARRAY)
     glVertexPointerf(xyz)
-    if not uv is None:
-      glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-      glTexCoordPointerf(uv)
-      glEnable(TEXTURE_TARGET)
 
     if not color is None:
       glEnableClientState(GL_COLOR_ARRAY)
@@ -106,7 +68,6 @@ class PCLWindow(Window):
     glDisableClientState(GL_COLOR_ARRAY)
     glDisableClientState(GL_VERTEX_ARRAY)
     glDisableClientState(GL_TEXTURE_COORD_ARRAY)
-    glDisable(TEXTURE_TARGET)
     glDisable(GL_BLEND)
 
     self._wrap('on_draw_axes')

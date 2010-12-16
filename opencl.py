@@ -92,7 +92,7 @@ kernel void normal_compute(
   float4 xyz = mult_xyz(XYZW);
   xyz = normalize(xyz);
   if (xyz.z < 0) xyz = -xyz;
-  xyz.w = 1*(xyz.z>.1)*(filt[index]<2047)*(fabs(dx)+fabs(dy)<10);
+  xyz.w = 1*(xyz.z>.1)*(filt[index]<1000)*(fabs(dx)+fabs(dy)<10);
   	
 	output[index] = xyz;
 }
@@ -109,38 +109,23 @@ def print_all():
 #print_all()
 normals = np.empty((480,640,4),'f')
 normals_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
-
-#depth_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.UNORM_INT16)
-#depth_img = cl.Image(context, mf.READ_ONLY, depth_fmt, shape=(480,640))
 depth_buf = cl.Buffer(context, mf.READ_ONLY, 480*640*2)
-
-#filt_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
-#filt_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
 filt_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4)
-
-#norm_fmt = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.FLOAT)
-#norm_img = cl.Image(context, mf.READ_WRITE, filt_fmt, shape=(480,640))
-norm_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
 def load_depth(depth):
   assert depth.dtype == np.int16
   assert depth.shape == (480,640)
   cl.enqueue_write_buffer(queue, depth_buf, depth).wait()
-  #df = np.empty((480,640,4),np.int16)
-  #df[:,:,0] = depth
-  #cl.enqueue_write_image(queue, depth_img, (0,0), (480,640), df).wait()
-  
+
 def load_filt(filt, rect=((0,0),(640,480))):
   assert filt.dtype == np.float32
   assert filt.shape == (480,640)
   (l,t),(r,b) = rect
-  #return cl.enqueue_write_buffer_rect(queue, filt_buf, filt, rect[0],rect[0],(r-l,b-t),640,640).wait()
   return cl.enqueue_write_buffer(queue, filt_buf, filt).wait()
   
 def compute_filter(rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; F = 7; bounds = np.array((L+F,T+F,R-F,B-F),'f')
   return program.filter_compute(queue, (640,480), None, filt_buf, depth_buf, bounds).wait()
-  #program.filter_compute(queue, (640-off,480-off), None, filt_buf, depth_buf, global_offset=(off,off)).wait()
   
 def get_filter():
   filt = np.empty((480,640),'f')

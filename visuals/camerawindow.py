@@ -4,12 +4,13 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 
 # Window for drawing point clouds
-class PCLWindow(Window):
+class CameraWindow(Window):
       
   def __init__(self, *args, **kwargs):
-    super(PCLWindow,self).__init__(*args, **kwargs)
+    super(CameraWindow,self).__init__(*args, **kwargs)
     self.rotangles = [0,0]
     self.zoomdist = 1
+    self.lookat = [0,0,0]
     self._mpos = None
 
     @self.eventx
@@ -55,8 +56,6 @@ class PCLWindow(Window):
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluPerspective(60, 4/3., 0.3, 200)
-    #glScale(-1,1,1)
-    #gluOrtho2D(-10,10,-10,10)
 
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
@@ -67,9 +66,8 @@ class PCLWindow(Window):
       glRotatef(zAngle, 0.0, 0.0, 1.0);
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-1.5)
+    glTranslate(*self.lookat)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
-    glTranslate(0,0,1.5)
-    #glTranslate(0, 0,-1)
 
     self._wrap('on_draw_axes')
 
