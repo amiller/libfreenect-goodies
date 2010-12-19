@@ -23,15 +23,17 @@ speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, ma
 def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
   (l,t),(r,b) = rect
   assert depth.dtype == np.float32
+  depth = depth[t:b,l:r]
   depth[depth==2047] = -1e8
   global filt
-  filt = np.empty_like(depth)
-  filt[t:b,l:r] = scipy.ndimage.uniform_filter(depth[t:b,l:r],win)
+  filt = scipy.ndimage.uniform_filter(depth,win) #2ms?
+  
+  # You can profile this with %timeit opencl_compute_filter(rect), etc
   #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
   #opencl.compute_filter(rect)
-  opencl.load_filt(filt,rect)
-  opencl.compute_normals(rect)
-  n = opencl.get_normals()[t:b,l:r]
+  opencl.load_filt(filt,rect)                # 329us
+  opencl.compute_normals(rect)               # 1.51ms
+  n = opencl.get_normals(rect=rect)          # 660us
   return n[:,:,:3], n[:,:,3]
  
   
@@ -96,38 +98,71 @@ def color_axis(normals,d=0.1):
   cx = [np.max((1.0-(c/d*c/d),0*c),0) for c in cc]
   return [c * 0.8 + 0.2 for c in cx]
   
+def meanshift_iter_opencl(mat, rect=((0,0),(640,480))):
+  opencl.compute_meanshift(mat, rect)
+  ax,aw = opencl.get_meanshift(rect=rect)
+  xm,ym,zm = aw[:,:,0].sum(), aw[:,:,1].sum(), aw[:,:,2].sum()
+  dX = ax[:,:,0].sum() / (ym + zm)
+  dY = ax[:,:,1].sum() / (zm + xm)
+  dZ = ax[:,:,2].sum() / (xm + ym)
+  if np.isnan(dX): dX = 0
+  if np.isnan(dY): dY = 0
+  if np.isnan(dZ): dZ = 0
+  return (dX,dY,dZ)
+  
+def meanshift_iter_numpy(normals, mat, d):
+  n = apply_rot(mat, normals)
+  X,Y,Z = [n[:,:,i] for i in range(3)]
+  cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
+  xm,ym,zm = [(c <= d*d)*weights for c in cc] # threshold mask
+  dX = (Z*ym - Y*zm).sum() / (ym.sum() + zm.sum()); 
+  dY = (X*zm - Z*xm).sum() / (zm.sum() + xm.sum()); 
+  dZ = (Y*xm - X*ym).sum() / (xm.sum() + ym.sum()); 
+  if np.isnan(dX): dX = 0
+  if np.isnan(dY): dY = 0
+  if np.isnan(dZ): dZ = 0
+  return (dX,dY,dZ)
   
 # Returns the optimal rotation, and the per-axis error weights
-def mean_shift_optimize(normals, weights, r0=np.array([0,0,0])):
+def mean_shift_optimize(normals, weights, r0=np.array([0,0,0]), rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect
+  assert normals.shape == (B-T,R-L,3)
+  assert weights.shape == (B-T,R-L)
   # Don't worry about convergence for now!
   mat = expmap.axis2rot(r0)
   d = 0.2 # E(p) = (x/d)^2 + (y/d)^2
   perr = 0; derr = 10
   iters = 0
-  while iters < 100 and (derr > 0.0001):
-    iters += 1
+  def compute_cc(mat,normals):
     n = apply_rot(mat, normals)
     X,Y,Z = [n[:,:,i] for i in range(3)]
-    R,G,B = color_axis(n,d)
-    #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
-    #update(normals[:,:,0],normals[:,:,1],normals[:,:,2], 
-    #     COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat))
-    #window.Refresh()
-    #pylab.waitforbuttonpress(0.001)
     cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
-    err = np.sum(weights*[np.max((1.0-(c/d*c/d),0*c),0) for c in cc])
-    derr = np.abs(perr-err)
-    perr = err
-    xm,ym,zm = [(c <= d*d)*weights for c in cc] # threshold mask
-    dX = (Z*ym - Y*zm).sum() / (ym.sum() + zm.sum()); 
-    if np.isnan(dX): dX = 0
-    dY = (X*zm - Z*xm).sum() / (zm.sum() + xm.sum()); 
-    if np.isnan(dY): dY = 0
-    dZ = (Y*xm - X*ym).sum() / (xm.sum() + ym.sum()); 
-    if np.isnan(dZ): dZ = 0
+    return cc
+    
+  while iters <= 4 and (derr > 0.0001):
+    iters += 1
+    
+    if 0: # Compute the current error. Compare it to the previous
+      cc = compute_cc(mat,normals)
+      err = np.sum(weights*[np.max((1.0-(c/d*c/d),0*c),0) for c in cc])
+      derr = np.abs(perr-err)
+      perr = err
+    
+    if 1 and iters==4: # Compute and display the current rotated normals
+      n = apply_rot(mat, normals)
+      R,G,B = color_axis(n,d)
+      #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
+      update(normals[:,:,0],normals[:,:,1],normals[:,:,2], 
+           COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat))
+      window.Refresh()
+      pylab.waitforbuttonpress(0.001)
+      
+    #dX,dY,dZ = meanshift_iter_numpy(normals, mat, d)
+    dX,dY,dZ = meanshift_iter_opencl(mat, rect)
     m = expmap.euler2rot([dX, dY, dZ])
     mat = np.dot(m.transpose(), mat)
-  return expmap.rot2axis(mat), weights*[np.max((1.0-(c/d*c/d),0*c),0) for c in cc]
+  cc = compute_cc(mat,normals)
+  return expmap.rot2axis(mat), 1#weights*[np.max((1.0-(c/d*c/d),0*c),0) for c in cc]
     
   
 def score(normals, weights):
@@ -168,30 +203,14 @@ def surface(normals, weights, r0=np.array([-0.7,-0.2,0])):
   	linewidth=0,antialiased=False)
   fig.show()
 
-def go():
-  while 1:
-    x0 = (np.random.rand(3)*2-1)*0.5 + np.array(r0)
-    x,w = mean_shift_optimize(n, weights, x0)
+def go(iter=1000):
+  normals_opencl(depth,rect)
+  for i in range(iter):
+    x0 = (np.random.rand(3)*2-1)*0.3 + np.array(r0)
+    x,w = mean_shift_optimize(n, weights, x0, rect)
     print x
     #print optimize_normals(n, weights, x0)
-  
-  
-def optimize_normals(normals, weights,x0):
-  # Optimize a cost function to find the rotation
-  def err(x):
-    rot = expmap.axis2rot(x)
-    n = apply_rot(rot, normals)
-    R,G,B = color_axis(n)
-    # This version keeps the axes fixed and rotates the cloud
-    #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
-    
-    # This version keep the point cloud stationary and rotates the axes
-    update(normals[:,:,0],normals[:,:,1],normals[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights),AXES=x)
-    window.Refresh()
-    pylab.waitforbuttonpress(0.001)
-    return -score(n, weights)
-  xs = scipy.optimize.fmin(err, x0)
-  return xs
+
   
 def play_movie():
   from pylab import gca, imshow, figure
@@ -227,16 +246,15 @@ def go_():
     pylab.waitforbuttonpress(0.1)
 
 
-
-
-def project(depth, u, v):
-   X,Y,Z = u,v,depth
-   mat = calibkinect.xyz_matrix()
-   x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + mat[0,3]
-   y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
-   z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
-   w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
-   return x/w, y/w, z/w
+def project(depth, u=None, v=None):
+  if u is None or v is None: v,u = np.mgrid[:480,:640]
+  X,Y,Z = u,v,depth
+  mat = calibkinect.xyz_matrix()
+  x = X*mat[0,0] + Y*mat[0,1] + Z*mat[0,2] + mat[0,3]
+  y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
+  z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
+  w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
+  return x/w, y/w, z/w
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
    global window
@@ -266,53 +284,44 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
    window.RGB = rgb
 
   
-def show_opencl():              
+def show_normals(depth, rect, win=7):
+   from visuals.normalswindow import NormalsWindow
+   global window
+   if not 'window' in globals(): window = NormalsWindow(size=(640,480))
+   global axes_rotation
+   axes_rotation = np.eye(4)
+   @window.event
+   def on_draw_axes():
+     # Draw some axes
+     glLineWidth(3)
+     glPushMatrix()
+     glMultMatrixf(axes_rotation.transpose())
 
-  imshow(n*np.dstack(3*[weights])/2+.5);
+     glScalef(1.5,1.5,1.5)
+     glBegin(GL_LINES)
+     glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+     glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+     glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+     glEnd()
+     glPopMatrix()
 
+   r0 = [-0.63, 0.68, 0.17]
+   n,weights = normals_opencl(depth,rect,win=win)
+   R,G,B = color_axis(n)
+   update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,weights*(R+G+B)))
+   window.Refresh()
 
 if __name__ == "__main__":
-  import main
   from visuals.normalswindow import NormalsWindow
-
-  if not 'window' in main.__dict__: main.window = NormalsWindow(size=(640,480))
-  window = main.window
-  
-  axes_rotation = np.eye(4)
-  @window.event
-  def on_draw_axes():
- 
-    # Draw some axes
-    glLineWidth(3)
-    glPushMatrix()
-    glMultMatrixf(axes_rotation.transpose())
-    glScalef(1.5,1.5,1.5)
-    glBegin(GL_LINES)
-    glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-    glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-    glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-    glEnd()
-    glPopMatrix()
+  global window
+  if not 'window' in globals(): window = NormalsWindow(size=(640,480))
   
   rgb, depth = [x[1].astype('f') for x in np.load('data/block2.npz').items()]
   rect =((264,231),(434,371))
-  
-  v,u = np.mgrid[231:371,264:434]
-  #v,u = np.mgrid[:480,:640]
+  (l,t),(r,b) = rect
+  v,u = np.mgrid[t:b,l:r]
   r0 = [-0.63, 0.68, 0.17]
   
   x,y,z = project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
-  # sub sample
-  #n,weights = normal_compute(x,y,z)
-  #n,weights = normals_numpy(depth,rect)
-  #n,weights = normals_c(depth,rect)
-  n,weights = normals_opencl(depth,rect)
-  #update(x,y,z,u,v,rgb)
-  #update(n[:,:,0],n[:,:,1],n[:,:,2], (u,v), rgb, (weights,weights,weights*0+1,weights*0+1))
-
-  update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(weights,weights,weights*0+1,weights*0.3))
-  R,G,B = color_axis(n)
-  update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,weights*(R+G+B)))
-  import cv
-
-  window.Refresh()
+  
+  show_normals(depth,rect)
