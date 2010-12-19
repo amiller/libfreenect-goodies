@@ -52,7 +52,7 @@ def rot2axis(matrix):
   R33 = R[:3, :3]
   # direction: unit eigenvector of R33 corresponding to eigenvalue of 1
   l, W = numpy.linalg.eig(R33.T)
-  i = numpy.where(abs(numpy.real(l) - 1.0) < 1e-8)[0]
+  i = numpy.where(abs(numpy.real(l) - 1.0) < 1e-6)[0]
   if not len(i):
       raise
       return np.array([0,0,0],np.float32)
@@ -60,7 +60,7 @@ def rot2axis(matrix):
   direction = numpy.real(W[:, i[-1]]).squeeze()
   # point: unit eigenvector of R33 corresponding to eigenvalue of 1
   l, Q = numpy.linalg.eig(R)
-  i = numpy.where(abs(numpy.real(l) - 1.0) < 1e-8)[0]
+  i = numpy.where(abs(numpy.real(l) - 1.0) < 1e-6)[0]
   if not len(i):
       raise
       #return np.array([0,0,0],np.float32)
@@ -68,9 +68,9 @@ def rot2axis(matrix):
   #point /= point[3]
   # rotation angle depending on direction
   cosa = (numpy.trace(R33) - 1.0) / 2.0
-  if abs(direction[2]) > 1e-8:
+  if abs(direction[2]) > 1e-6:
       sina = (R[1, 0] + (cosa-1.0)*direction[0]*direction[1]) / direction[2]
-  elif abs(direction[1]) > 1e-8:
+  elif abs(direction[1]) > 1e-6:
       sina = (R[0, 2] + (cosa-1.0)*direction[0]*direction[2]) / direction[1]
   else:
       sina = (R[2, 1] + (cosa-1.0)*direction[1]*direction[2]) / direction[0]
