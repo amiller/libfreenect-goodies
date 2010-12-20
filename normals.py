@@ -67,7 +67,92 @@ def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
   weights[(z/w)<.1] = 0
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
+  
+def flatrot_opencl(normals, weights, plane, rect):
+  # Pick a random vector in the plane
+  v1 = plane[:3]
+  v_ = np.random.random(3)
+  v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2)))
+  v0 = np.cross(v1,v2)
+  mat = np.hstack((np.vstack((v0,v1,v2)),[[0],[0],[0]]))
+  opencl.compute_flatrot(mat.astype('f'), rect)
+  qxdyqz = opencl.get_flatrot(rect)
+  sq = np.nansum(np.nansum(qxdyqz,0),0)
+  qqx = sq[0] / sq[3]
+  qqz = sq[2] / sq[3]
+  angle = np.arctan2(qqz,qqx)/4 
+  q0 = np.cos(angle) * v0 + np.sin(angle) * v2
+  q0 /= np.sqrt(np.dot(q0,q0))
+  q2 = np.cross(q0,v1)  
 
+  # Build an output matrix out of the components
+  #mat = np.vstack((v0,v1,v2))
+  mat = np.vstack((q0,v1,q2))
+  axes = expmap.rot2axis(mat)
+  
+  if 1:
+    # Reproject using the basis vectors for display
+    X,Y,Z = np.rollaxis(normals,2)
+    w = qxdyqz[:,:,3]
+    update(X,Y,Z, COLOR=(w+.7,w*0+.7,w*0+.7,w*0+.5), AXES=axes)
+    window.Refresh()
+    pylab.waitforbuttonpress(0.001)
+    
+  return axes
+  
+def flatrot_numpy(normals,weights,plane):
+  # Pick a random vector in the plane
+  v1 = plane[:3].astype('f')
+  v_ = np.random.random(3)
+  v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2))).astype('f')
+  v0 = np.cross(v1,v2).astype('f')
+  global dx,dy,dz, qx, qz
+  # Project the normals against the plane  
+  X,Y,Z = np.rollaxis(normals,2)
+  dx = X*v0[0] + Y*v0[1] + Z*v0[2]
+  dy = X*v1[0] + Y*v1[1] + Z*v1[2]
+  dz = X*v2[0] + Y*v2[1] + Z*v2[2]
+  
+  # Use the quadruple angle formula to push everything around the
+  # circle 4 times faster, like doing mod(x,pi/2)
+  qz = 4*dz*dx*dx*dx - 4*dz*dz*dz * dx
+  qx = dx*dx*dx*dx - 6*dx*dx*dz*dz + dz*dz*dz*dz
+  
+  # Build the weights using a similar function to that used elsewhere
+  d=0.3
+  global cx, qqx, qqz
+  cx = np.max((1.0-dy*dy/(d*d), 0*dy),0)
+  w = weights * cx
+
+  qqx = np.nansum(w*qx) / w.sum()
+  qqz = np.nansum(w*qz) / w.sum()
+  angle = np.arctan2(qqz,qqx)/4 
+  
+  q0 = np.cos(angle) * v0 + np.sin(angle) * v2
+  q0 /= np.sqrt(np.dot(q0,q0))
+  q2 = np.cross(q0,v1)  
+
+  # Build an output matrix out of the components
+  #mat = np.vstack((v0,v1,v2))
+  mat = np.vstack((q0,v1,q2))
+  axes = expmap.rot2axis(mat)
+  
+  if 0:
+    # Reproject using the basis vectors for display
+    if 1:
+      X = dx*v0[0] + dy*v1[0]*1 + dz*v2[0]
+      Y = dx*v0[1] + dy*v1[1]*1 + dz*v2[1]
+      Z = dx*v0[2] + dy*v1[2]*1 + dz*v2[2]
+    else:
+      X = qx*v0[0] + dy*v1[0]*1 + qz*v2[0]
+      Y = qx*v0[1] + dy*v1[1]*1 + qz*v2[1]
+      Z = qx*v0[2] + dy*v1[2]*1 + qz*v2[2]
+      
+    update(X,Y,Z, COLOR=(w+.7,w*0+.7,w*0+.7,w*0+.5), AXES=axes)
+    window.Refresh()
+    pylab.waitforbuttonpress(0.001)
+    
+  return axes
 
 def normals_c(depth, rect=((0,0),(640,480)), win=7):
   assert depth.dtype == np.float32
@@ -299,9 +384,9 @@ def show_normals(depth, rect, win=7):
 
      glScalef(1.5,1.5,1.5)
      glBegin(GL_LINES)
-     glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+     glColor3f(1,0,0); glVertex3f(-1,0,0); glVertex3f(1,0,0)
      glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-     glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+     glColor3f(1,0,0); glVertex3f(0,0,-1); glVertex3f(0,0,1)
      glEnd()
      glPopMatrix()
 

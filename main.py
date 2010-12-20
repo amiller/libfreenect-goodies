@@ -7,7 +7,8 @@ import cv
 # These will define the first ROI.
 boundpts = (260,218),(484,222),(570,409),(150,350)
 boundpts = np.array(boundpts)
-tableplane = np.array([-0.1340615 ,  0.66140062,  0.73795438,  0.47417785])
+#array([-0.01685934,  0.94029319,  0.33994767,  0.27120995])
+#tableplane = np.array([-0.1340615 ,  0.66140062,  0.73795438,  0.47417785])
 
 def find_plane(depth):
   global tableplane,mask,background
@@ -50,24 +51,31 @@ def grab():
 def init_stage0():
   grab()
   find_plane(depth)
+  try:
+    normals.show_normals(depth, None)
+  except:
+    pass
 
 # Grab a frame, assume we already have the table found
 def init_stage1():
   import pylab
   grab()
-  global mask, rect, r0
+  global mask, rect, r0, n, w
   mask,rect = threshold_and_mask(depth)
   (l,t),(r,b) = rect
   print (b-t),'x', (r-l)
   n,w = normals.normals_opencl(depth.astype('f'), rect, 6)
-  r0,_ = normals.mean_shift_optimize(n, w, r0, rect)
-  cv.ShowImage('rgb',rgb[::2,::2,::-1].clip(0,255/2)*2)
+  #r0,_ = normals.mean_shift_optimize(n, w, r0, rect)
+  #r0 = normals.flatrot_numpy(tableplane)
+  r0 = normals.flatrot_opencl(n,w,tableplane,rect)
+  #cv.ShowImage('rgb',rgb[::2,::2,::-1].clip(0,255/2)*2)
   #normals.show_normals(depth.astype('f'),rect, 5)
   pylab.waitforbuttonpress(0.001)
   #figure(1);
   #clf()
   #imshow(depth[t:b,l:r])
   
+r0 = np.array([0,0,0])
 def go():
   global r0
   r0 = np.array([0,0,0])

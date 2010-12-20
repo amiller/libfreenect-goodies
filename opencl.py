@@ -142,6 +142,38 @@ kernel void meanshift_compute(
   float4 dd = n.zxyw*cm.yzxw - n.yzxw*cm.zxyw;
   output[index] = dd;
 }
+
+kernel void flatrot_compute(
+	global float4 *output,
+	global const float4 *norm,
+	float4 v0, float4 v1,	float4 v2,
+	float4 bounds
+)
+{
+  unsigned int x = get_global_id(0);
+  unsigned int y = get_global_id(1);
+  unsigned int width = get_global_size(0);
+  unsigned int height = get_global_size(1);
+  unsigned int index = (y * width) + x;
+  if (x<0 || x>=width || y<0 || y>=height) return;
+  if (norm[index].w == 0) { // Quit early if the weight is too low!
+    output[index] = (float4)(0);
+    return;  
+  }
+  float4 n = norm[index];
+  float dx = dot(n, v0);
+  float dy = dot(n, v1);
+  float dz = dot(n, v2);
+  
+  float qz = 4*dz*dx*dx*dx - 4*dz*dz*dz * dx;
+  float qx = dx*dx*dx*dx - 6*dx*dx*dz*dz + dz*dz*dz*dz;
+  
+  float d=0.3;
+  float cx = max((float)(1.0-dy*dy/(d*d)), (float)0.0f);
+  float w = n.w * cx;
+  
+  output[index] = (float4)(qx*w, dy*w,qz*w, w);  
+}
 """ % matmul3('mult_xyz', np.linalg.inv(calibkinect.xyz_matrix()).transpose())
 
 program = cl.Program(context, kernel_normals).build("-cl-mad-enable")
@@ -158,6 +190,8 @@ filt_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4)
 
 axisweight_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 axismean_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
+
+qxdyqz_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
 
 def load_filt(filt, rect=((0,0),(640,480))):
@@ -191,6 +225,13 @@ def get_meanshift(axismean=None, axisweight=None, rect=((0,0),(640,480))):
   cl.enqueue_read_buffer(queue,   axismean_buf,   axismean)
   cl.enqueue_read_buffer(queue, axisweight_buf, axisweight).wait()
   return axismean, axisweight
+  
+def get_flatrot(rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect  
+  qxdyqz = np.empty((B-T,R-L,4),'f')
+  cl.enqueue_read_buffer(queue, qxdyqz_buf, qxdyqz).wait()
+  return qxdyqz
+  
 
 def compute_normals(rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
@@ -202,6 +243,14 @@ def compute_meanshift(mat=np.eye(3), rect=((0,0),(640,480)),):
   (L,T),(R,B) = rect;
   return program.meanshift_compute(queue, (R-L,B-T), None, 
     axismean_buf, axisweight_buf, normals_buf, mat_[0,:], mat_[1,:], mat_[2,:])
+    
+    
+def compute_flatrot(mat, rect=((0,0),(640,480))):
+  assert mat.dtype == np.float32
+  assert mat.shape == (3,4)
+  (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
+  return program.flatrot_compute(queue, (R-L,B-T), None, 
+    qxdyqz_buf, normals_buf, mat[0,:].astype('f'), mat[1,:].astype('f'), mat[2,:].astype('f'), bounds)
     
 
 
