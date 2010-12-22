@@ -10,7 +10,7 @@ class CameraWindow(Window):
     super(CameraWindow,self).__init__(*args, **kwargs)
     self.rotangles = [0,0]
     self.zoomdist = 1
-    self.lookat = [0,0,0]
+    self.lookat = np.array([0,0,0])
     self._mpos = None
 
     @self.eventx
@@ -64,10 +64,11 @@ class CameraWindow(Window):
       glRotatef(xAngle, 1.0, 0.0, 0.0);
       glRotatef(yAngle, 0.0, 1.0, 0.0);
       glRotatef(zAngle, 0.0, 0.0, 1.0);
+      
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-1.5)
-    glTranslate(*self.lookat)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
+    glTranslate(*-self.lookat)
 
     self._wrap('on_draw_axes')
 

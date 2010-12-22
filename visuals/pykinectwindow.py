@@ -33,7 +33,6 @@ class Window(wx.Frame):
       else:
         self.__getattribute__(name)(*args, **kwargs)
             
-
     def __init__(self, title='WxWindow', id=-1, pos=wx.DefaultPosition,
                  size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE,
                  name='frame'):

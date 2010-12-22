@@ -24,14 +24,6 @@ class NormalsWindow(CameraWindow):
     xyz, uv, color = self.XYZ, self.UV, self.COLOR
     if xyz is None: return
     
-    # flush that stack in case it's broken from earlier
-    try:
-      while glPopMatrix(): pass
-    except:
-      pass
-
-    # flush that stack in case it's broken from earlier
-    glPushMatrix()
 
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
@@ -39,18 +31,19 @@ class NormalsWindow(CameraWindow):
     #gluOrtho2D(-10,10,-10,10)
 
     glMatrixMode(GL_MODELVIEW)
+    # flush that stack in case it's broken from earlier
+    glPushMatrix()
     glLoadIdentity()
 
     def mouse_rotate(xAngle, yAngle, zAngle):
       glRotatef(xAngle, 1.0, 0.0, 0.0);
       glRotatef(yAngle, 0.0, 1.0, 0.0);
       glRotatef(zAngle, 0.0, 0.0, 1.0);
+      
     glScale(self.zoomdist,self.zoomdist,1)
-    glTranslate(0, 0,-10.5)
+    glTranslate(0, 0,-1.5)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
-    #glTranslate(0,0,1.5)
-    #glTranslate(0, 0,-1)
-    
+    glTranslate(*-self.lookat)
 
     # Draw the points
     glPointSize(2)
