@@ -13,12 +13,16 @@ LH = 0.0180
 LW = 0.0160
 
 def circular_mean(data, modulo):
+  """
+  Given data sampled from a periodic function (with known period: modulo), 
+  find the phase by converting to cartesian coordinates. 
+  """
   angle = data / modulo * np.pi * 2
   y = np.sin(angle)
   x = np.cos(angle)
   a2 = np.arctan2(y.mean(),x.mean()) / (2*np.pi)
   if np.isnan(a2): a2 = 0
-  return a2 * modulo if a2 >= 0 else (a2+1)*modulo
+  return a2*modulo
   
 def color_axis(X,Y,Z,w,d=0.1):
   X2,Y2,Z2 = X*X,Y*Y,Z*Z
@@ -36,32 +40,68 @@ def project(X, Y, Z, mat):
   w = 1/w
   return x*w, y*w, z*w
   
-def lattice2(n,w,depth,rgb,mat_,tableplane,rect):
+def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
+  """
+  Assuming we know the tableplane, find the rotation and translation in
+  the XZ plane.
+  - init_angle, init_t: 
+      if None, the rotation (4-way 90 degree ambiguity) is defined arbitrarily
+      and the translation is set to the centroid of the detected points.
+  """
   (l,t),(r,b) = rect
-  mat = np.eye(4,dtype='f')
-  mat[:3,:3] = mat_
-  global rotmat
-  rotmat = mat
-  matxyz = np.dot(mat, calibkinect.xyz_matrix())
+  assert mat.shape == (3,4)
+  global modelmat
+  modelmat = np.eye(4,dtype='f')
+  modelmat[:3,:4] = mat
+  modelmat[1,3] = tableplane[3]
+  
+  # Build a matrix that can project the depth image into model space
+  matxyz = np.dot(modelmat, calibkinect.xyz_matrix())
   v,u = np.mgrid[t:b,l:r]
   X,Y,Z = project(u,v,depth[t:b,l:r], matxyz)
   XYZ = np.dstack((X,Y,Z))
-  dx = np.dot(n,mat[0,:3])
-  dy = np.dot(n,mat[1,:3])
-  dz = np.dot(n,mat[2,:3])
+  
+  # Project normals from camera space to model space (axis aligned)
+  dx = np.dot(n,modelmat[0,:3])
+  dy = np.dot(n,modelmat[1,:3])
+  dz = np.dot(n,modelmat[2,:3])
   global cx,cy,cz
   cx,cy,cz = color_axis(dx,dy,dz,w)
+    
+  # If we don't have a good initialization for the model space translation,
+  # use the centroid of the surface points.  
+  if init_t:  
+    modelmat[:,3] -= [X[cx>0].mean(), 0, Z[cz>0].mean(), 0]
+    matxyz = np.dot(modelmat, calibkinect.xyz_matrix())
+    v,u = np.mgrid[t:b,l:r]
+    X,Y,Z = project(u,v,depth[t:b,l:r], matxyz)
+    XYZ = np.dstack((X,Y,Z))
   
   global meanx, meany, meanz
-  global mx, my, mz  
-  mx = np.floor(X[w>0].mean()/LW)*LW
-  my = 0#my = np.floor(Y[w>0].mean()/LH)*LH
-  mz = np.floor(Z[w>0].mean()/LW)*LW
-  
   meanx = circular_mean(X[cx>0],LW)
-  meany = -tableplane[3]
   meanz = circular_mean(Z[cz>0],LW)
+  #print meanx,meanz
   
+  modelmat[:,3] -= [meanx, 0, meanz, 0]
+  X -= meanx
+  Z -= meanz
+  
+  Xo,Yo,Zo = project(u,v,depth[t:b,l:r], calibkinect.xyz_matrix())
+  
+
+  
+  R,G,B = cx,cy,cz; R = R[w>0]; G = G[w>0]; B = B[w>0]
+  #update(X[w>0],
+  #       Y[w>0],
+  #       Z[w>0],COLOR=(R,G,B,R+G+B))
+  #update(*3*[np.array([[0]])])
+  update(Xo[w>0],Yo[w>0],Zo[w>0],COLOR=(R,G,B,R+G+B))
+
+  # update(X[w>0]-meanx-mx,
+  #       Y[w>0]-meany-my,
+  #       Z[w>0]-meanz-mz,COLOR=(R,G,B,R+G+B))
+  window.Refresh()
+  return modelmat[:3,:4]
 
   # Mark which blocks correspond to each pixel. We need to divide by the
   # blockheight to be in block coordinates. Since surface pixels are on 
@@ -93,15 +133,7 @@ def lattice2(n,w,depth,rgb,mat_,tableplane,rect):
   global occ_votes
   occ_votes = np.floor(np.dstack((Xs[occ_mask],Ys[occ_mask],Zs[occ_mask]))).reshape(-1,3)
   
-  Xo,Yo,Zo = project(u,v,depth[t:b,l:r], calibkinect.xyz_matrix())
-  R,G,B = cx,cy,cz; R = R[w>0]; G = G[w>0]; B = B[w>0]
-  update(*3*[np.array([[0]])])
-  #update(Xo[w>0],Yo[w>0],Zo[w>0],COLOR=(R,G,B,R+G+B))
 
-  # update(X[w>0]-meanx-mx,
-  #       Y[w>0]-meany-my,
-  #       Z[w>0]-meanz-mz,COLOR=(R,G,B,R+G+B))
-  window.Refresh()
   
   
   if 0:
@@ -165,77 +197,11 @@ def lattice2(n,w,depth,rgb,mat_,tableplane,rect):
   legos = np.array(np.nonzero(H > 30)).transpose() + mins  
   occblocks = np.array(np.nonzero(occH > 0)).transpose() + occmins
   legocolors = cH[H>30].flatten()
-  
-def voxels():
-  global votes
-  xv = (rotpts[cc[0]>0]-[meanx+mx,meany+my,meanz+mz])/[LW,LH,LW]-[.5,0,0]
-  yv = (rotpts[cc[1]>0]-[meanx+mx,meany+my,meanz+mz])/[LW,LH,LW]-[0,.5,0]
-  zv = (rotpts[cc[2]>0]-[meanx+mx,meany+my,meanz+mz])/[LW,LH,LW]-[0,0,.5]
-  
-  figure(4)
-  clf();
-  scatter(xv[:,0]+.5,xv[:,2])
-  scatter(zv[:,0],zv[:,2]+.5,c='r')
-  votes = np.floor(np.vstack((xv,zv)))
-  scatter(votes[:,0],votes[:,2],c='g')
-  pylab.draw()
-  
-  mins = votes.min(0)
-  maxs = votes.max(0)
-  global bins
-  bins = [np.arange(mins[i],maxs[i]+2)-.5 for i in range(3)]
-  global H
-  H,_ = np.histogramdd(votes, bins)
-  global legos, legocolors
-  legos = np.array(np.nonzero(H > 30)).transpose() + mins
-  
-
-def show_projections(rotpts,cc,weights,rotn):
-  global meanx, meany, meanz, mx, my, mz
-  meanx = circular_mean(rotpts[:,:,0][cc[0,:,:]>0],LW)
-  meany = circular_mean(rotpts[:,:,1][cc[1,:,:]>0],LH)
-  meanz = circular_mean(rotpts[:,:,2][cc[2,:,:]>0],LW)
-  mx = np.floor(rotpts[:,:,0][weights>0].mean()/LW)*LW
-  mz = np.floor(rotpts[:,:,2][weights>0].mean()/LW)*LW
-  my = np.floor(rotpts[:,:,1][weights>0].mean()/LH)*LH
-
-  R,G,B = color_axis(*np.rollaxis(rotn,2),w=weights); R = R[weights>0]; G = G[weights>0]; B = B[weights>0]
-  update(rotpts[:,:,0][weights>0]-mx-meanx,
-         rotpts[:,:,1][weights>0]-my-meany,
-         rotpts[:,:,2][weights>0]-mz-meanz,COLOR=(R,G,B,R+G+B))
-  window.Refresh()
-
-  figure(1)
-  clf();
-  title('height vs Z')
-  xlabel('Z (meters)')
-  ylabel('Height/Y (meters)')
-  xticks(np.arange(-10,10)*LW + mz)
-  yticks(np.arange(-10,10)*LH + my)
-  scatter(rotpts[:,:,2][weights>0]-meanz, rotpts[:,:,1][weights>0]-meany)
-  scatter(rotpts[:,:,2][cc[2,:,:]>0]-meanz, rotpts[:,:,1][cc[2,:,:]>0]-meany,c='r')
-  gca().set_xlim(gca().get_xlim()[::-1]) 
-  grid('on')
-  pylab.draw()
-  
-  figure(2)
-  clf()
-  title('Height vs X')
-  xlabel('X (meters)')
-  ylabel('Height/Y (meters)')
-  xticks(np.arange(-10,10)*LW + mx)
-  yticks(np.arange(-10,10)*LH + my)
-  grid('on')
-  scatter(rotpts[:,:,0][cc[2,:,:]>0]-meanx,rotpts[:,:,1][cc[2,:,:]>0]-meany)
-  scatter(rotpts[:,:,0][cc[0,:,:]>0]-meanx,rotpts[:,:,1][cc[0,:,:]>0]-meany, c='r')
-  pylab.draw()
-  
-  pylab.waitforbuttonpress(0.1)
-
 
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   global window
+  #window.lookat = np.array([0,0,0])
   window.lookat = preprocess.tablemean
   
   xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
@@ -262,29 +228,6 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   window.UV = uv if UV else None
   window.COLOR = color if COLOR else None
   window.RGB = rgb
-  
-def play_movie():
-  from pylab import gca, imshow, figure
-  import pylab
-  foldername = 'data/movies/test'
-  frame = 0
-  r0 = np.array([-0.7626858,   0.28330218,  0.17082515])
-  while 1:
-
-    depth = np.load('%s/depth_%05d.npz'%(foldername,frame)).items()[0][1].astype(np.float32)
-    v,u = np.mgrid[135:332,335:485] #test
-    #v,u = np.mgrid[231:371,264:434] # single
-    x,y,z = normals.project(depth[v,u], u, v)
-    n, weights = normals.fast_normals(depth[v,u],u.astype(np.float32),v.astype(np.float32))
-    #np.savez('%s/normals_%05d'%(foldername,frame),v=v,u=u,n=n,weights=weights)
-    r0, cc = normals.mean_shift_optimize(n,weights, np.array(r0))
-    rot = expmap.axis2rot(r0)
-    rotpts = normals.apply_rot(rot, np.dstack((x,y,z)))
-    rotn = normals.apply_rot(rot, n)
-    show_projections(rotpts,cc,weights,rotn)
-    print r0 
-    frame += 1
-    
     
 from visuals.normalswindow import NormalsWindow
 if not 'window' in globals(): 
@@ -314,24 +257,25 @@ build_list()
 @window.event
 def on_draw_axes():
   
+  glPolygonOffset(1.0,0.2)
+  glEnable(GL_POLYGON_OFFSET_FILL)
+  
   glBegin(GL_QUADS)
   glColor(0.6,0.7,0.7,1)
   for x,y,z in preprocess.boundptsM:
     glVertex(x,y,z)
   glEnd()
-  
 
   glPushMatrix()
   #glTranslate(0,0,-1.5)
   glMultMatrixf(rotmat)
   glTranslate((meanx+mx),(meany+my),(meanz+mz))
   glScale(LW,LH,LW)
-  glPolygonOffset(1.0,0.2)
+  
   #glEnable(GL_LINE_SMOOTH)
   #glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
   glEnable(GL_BLEND)
   glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
-  glEnable(GL_POLYGON_OFFSET_FILL)
   glBegin(GL_QUADS)
   for (x,y,z),cind in zip(legos,legocolors):
     for q in     [[[1,1,0],[0,1,0],[0,1,1],[1,1,1]], \
@@ -358,6 +302,8 @@ def on_draw_axes():
   glEnd()
   glDisable(GL_POLYGON_OFFSET_FILL)
   
+  
+  
   glColor(1,1,1,0.8)
   for x,y,z in legos:
     glPushMatrix()
@@ -367,6 +313,29 @@ def on_draw_axes():
   glPopMatrix()
   glDisable(GL_LIGHTING)
   glDisable(GL_COLOR_MATERIAL)
+  
+  # Draw the axes for the model coordinate space
+  glPushMatrix()
+  glLineWidth(3)
+  glMultMatrixf(np.linalg.inv(modelmat).transpose())
+  glScalef(LW,LH,LW)
+  glBegin(GL_LINES)
+  glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+  glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+  glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+  glEnd()
+  # Draw a grid for the model coordinate space
+  glLineWidth(1)
+  glBegin(GL_LINES)
+  GR = 8
+  glColor3f(0.2,0.2,0.4)
+  for j in range(0,1):
+    for i in range(-GR,GR+1):
+      glVertex(i,j,-GR); glVertex(i,j,GR)
+      glVertex(-GR,j,i); glVertex(GR,j,i)
+  glEnd()
+  glPopMatrix()
+  
   
 
 window.Refresh()

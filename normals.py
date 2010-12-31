@@ -18,9 +18,7 @@ except:
 matarg = np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags='C_CONTIGUOUS')
 speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, matarg, ctypes.c_int, ctypes.c_int]
 
-
-
-def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
+def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7):
   (l,t),(r,b) = rect
   assert depth.dtype == np.float32
   depth = depth[t:b,l:r]
@@ -31,6 +29,7 @@ def normals_opencl(depth, rect=((0,0),(640,480)), win=7):
   # You can profile this with %timeit opencl_compute_filter(rect), etc
   #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
   #opencl.compute_filter(rect)
+  opencl.load_mask(mask,rect)
   opencl.load_filt(filt,rect)                # 329us
   opencl.compute_normals(rect)               # 1.51ms
   n = opencl.get_normals(rect=rect)          # 660us
@@ -68,14 +67,26 @@ def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
   
-def flatrot_opencl(normals, weights, plane, rect, noshow=None):
-  # Pick a random vector in the plane
-  v1 = plane[:3]
-  #v_ = np.random.random(3)
-  v_ = -np.array([0,0,1])
-  v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2)))
-  v0 = np.cross(v1,v2)
-  mat = np.hstack((np.vstack((v0,v1,v2)),[[0],[0],[0]]))
+def flatrot_opencl(normals, weights, plane, rect, guessmat=None, noshow=None):
+  """
+  Find the orientation of the lattice using the (labeled) surface normals. 
+  Assumes we know the table plane. If a guess is provided, then we use it.
+  Otherwise it is chosen arbitrarily for initialization.
+  """
+  
+  if guessmat is None:
+    # Pick a random vector in the plane
+    v1 = plane[:3]
+    v_ = np.random.random(3)
+    #v_ = -np.array([0,0,1])
+    v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2)))
+    v0 = np.cross(v1,v2)
+    mat = np.hstack((np.vstack((v0,v1,v2)),[[0],[0],[0]]))
+  else:
+    v0,v1,v2 = guessmat[:3,:3]
+    mat = np.array(guessmat)
+    mat[:,3] = [0,0,0]
+    
   opencl.compute_flatrot(mat.astype('f'), rect)
   qxdyqz = opencl.get_flatrot(rect)
   sq = np.nansum(np.nansum(qxdyqz,0),0)
@@ -87,7 +98,6 @@ def flatrot_opencl(normals, weights, plane, rect, noshow=None):
   q2 = np.cross(q0,v1)  
 
   # Build an output matrix out of the components
-  #mat = np.vstack((v0,v1,v2))
   mat = np.vstack((q0,v1,q2))
   
   
@@ -345,31 +355,49 @@ def project(depth, u=None, v=None):
   return x*w, y*w, z*w
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
-   global window
-   xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
-   mask = Z.flatten()<10
-   xyz = xyz[mask,:]
-   window.XYZ = xyz
+  from visuals.normalswindow import NormalsWindow
+  global window
+  if not 'window' in globals(): window = NormalsWindow(size=(640,480))
 
-   global axes_rotation
-   axes_rotation = np.eye(4)
-   if not AXES is None:
-     # Rotate the axes
-     axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
+  @window.event
+  def on_draw_axes():
+    # Draw some axes
+    glLineWidth(3)
+    glPushMatrix()
+    glMultMatrixf(axes_rotation.transpose())
 
-   if not UV is None:
-     U,V = UV
-     uv = np.vstack((U.flatten(),V.flatten())).transpose()
-     uv = uv[mask,:]
+    glScalef(1.5,1.5,1.5)
+    glBegin(GL_LINES)
+    glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
+    glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
+    glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
+    glEnd()
+    glPopMatrix()
+  
+  xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
+  mask = Z.flatten()<10
+  xyz = xyz[mask,:]
+  window.XYZ = xyz
 
-   if not COLOR is None:
-     R,G,B,A = COLOR
-     color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
-     color = color[mask,:]
+  global axes_rotation
+  axes_rotation = np.eye(4)
+  if not AXES is None:
+    # Rotate the axes
+    axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
 
-   window.UV = uv if UV else None
-   window.COLOR = color if COLOR else None
-   window.RGB = rgb
+  if not UV is None:
+    U,V = UV
+    uv = np.vstack((U.flatten(),V.flatten())).transpose()
+    uv = uv[mask,:]
+
+  if not COLOR is None:
+    R,G,B,A = COLOR
+    color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
+    color = color[mask,:]
+
+  window.UV = uv if UV else None
+  window.COLOR = color if COLOR else None
+  window.RGB = rgb
 
   
 def show_normals(depth, rect, win=7):
@@ -378,32 +406,15 @@ def show_normals(depth, rect, win=7):
    if not 'window' in globals(): window = NormalsWindow(size=(640,480))
    global axes_rotation
    axes_rotation = np.eye(4)
-   @window.event
-   def on_draw_axes():
-     # Draw some axes
-     glLineWidth(3)
-     glPushMatrix()
-     glMultMatrixf(axes_rotation.transpose())
-
-     glScalef(1.5,1.5,1.5)
-     glBegin(GL_LINES)
-     glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
-     glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-     glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
-     glEnd()
-     glPopMatrix()
 
    r0 = [-0.63, 0.68, 0.17]
    n,weights = normals_opencl(depth,rect,win=win)
    R,G,B = color_axis(n)
    update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+.5,G+.5,B+.5,weights*(R+G+B)))
    window.Refresh()
+   
 
-if __name__ == "__main__":
-  from visuals.normalswindow import NormalsWindow
-  global window
-  if not 'window' in globals(): window = NormalsWindow(size=(640,480))
-  
+if __name__ == "__main__":  
   rgb, depth = [x[1].astype('f') for x in np.load('data/block2.npz').items()]
   rect =((264,231),(434,371))
   (l,t),(r,b) = rect

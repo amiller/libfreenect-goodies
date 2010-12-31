@@ -79,6 +79,7 @@ kernel void filter_compute(
 kernel void normal_compute(
 	global float4 *output,
 	global const float *filt,
+	global const char *mask,
 	float4 bounds
 )
 {	
@@ -92,7 +93,7 @@ kernel void normal_compute(
 	x += bounds[0];
 	y += bounds[1];
 	
-	if (filt[index]<-1000) {
+	if (!mask[index] || filt[index]<-1000) {
 	  output[index] = (float4)(0);
 	  return;
 	}
@@ -185,6 +186,8 @@ def print_all():
   print_info(queue, cl.command_queue_info)
   
 #print_all()
+mask_buf = cl.Buffer(context, mf.READ_WRITE, 480*640)
+
 normals_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 filt_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4)
 
@@ -193,6 +196,11 @@ axismean_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
 qxdyqz_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
+def load_mask(mask, rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect; 
+  assert mask.dtype == np.bool
+  assert mask.shape == (B-T,R-L)
+  return cl.enqueue_write_buffer(queue, mask_buf, mask).wait()
 
 def load_filt(filt, rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; 
@@ -235,7 +243,7 @@ def get_flatrot(rect=((0,0),(640,480))):
 
 def compute_normals(rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
-  return program.normal_compute(queue, (R-L,B-T), None, normals_buf, filt_buf, bounds)
+  return program.normal_compute(queue, (R-L,B-T), None, normals_buf, filt_buf, mask_buf, bounds)
   
 def compute_meanshift(mat=np.eye(3), rect=((0,0),(640,480)),):
   mat_ = np.eye(4,dtype='f')

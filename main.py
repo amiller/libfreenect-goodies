@@ -32,20 +32,26 @@ def init_stage1():
   global mask, rect, r0, n, w, cc
   mask,rect = preprocess.threshold_and_mask(depth)
   (l,t),(r,b) = rect
-  n,w = normals.normals_opencl(depth.astype('f'), rect, 6)
+  n,w = normals.normals_opencl(depth.astype('f'), np.array(mask[t:b,l:r]), rect, 6)
   w *= mask[t:b,l:r]
   #r0,_ = normals.mean_shift_optimize(n, w, r0, rect)
   #r0 = normals.flatrot_numpy(tableplane)
-  mat = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,noshow=True)
-  #mx,my,mz = lattice.lattice2(n,w,depth,mat,tableplane,rect)
-  
-  v,u = np.mgrid[t:b,l:r]
-  x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
-  rotpts = normals.apply_rot(mat, np.dstack((x,y,z)))
-  rotn = normals.apply_rot(mat, n)
-  cc = np.array(lattice.color_axis(*np.rollaxis(rotn,2),w=w))
-  
-  lattice.lattice2(n,w,depth,rgb,mat,preprocess.tableplane,rect)
+  global modelmat
+  if modelmat is None:  
+    mat = np.zeros((3,4),'f')
+    mat[:3,:3] = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,noshow=False)
+    
+    modelmat = lattice.lattice2(n,w,depth,rgb,mat,preprocess.tableplane,rect,init_t=True)
+    
+  else:
+    mat = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,modelmat,noshow=False)
+    mr = np.dot(mat, np.linalg.inv(modelmat[:3,:3])) # find the residual rotation
+    ut = np.dot(mr, modelmat[:3,3])                  # apply the residual to update translation
+    modelmat[:3,:3] = mat[:3,:3]
+    modelmat[:3, 3] = ut
+
+    modelmat = lattice.lattice2(n,w,depth,rgb,modelmat,preprocess.tableplane,rect,init_t=False)
+    print modelmat[:3,3]
   #lattice.show_projections(rotpts,cc,w,rotn)
 
   
@@ -58,9 +64,11 @@ def init_stage1():
   #imshow(depth[t:b,l:r])
   
 r0 = np.array([0,0,0])
+modelmat = None
 def go():
-  global r0
+  global r0,modelmat
   r0 = np.array([0,0,0])
+  modelmat = None
   while 1:
     init_stage1()
   

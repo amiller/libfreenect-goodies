@@ -42,7 +42,7 @@ class NormalsWindow(CameraWindow):
       glRotatef(zAngle, 0.0, 0.0, 1.0);
       
     glScale(self.zoomdist,self.zoomdist,1)
-    glTranslate(0, 0,-1.5)
+    glTranslate(0, 0,-2.5)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
     glTranslate(*-self.lookat)
 
