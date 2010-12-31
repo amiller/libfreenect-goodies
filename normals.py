@@ -68,10 +68,11 @@ def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
   
-def flatrot_opencl(normals, weights, plane, rect):
+def flatrot_opencl(normals, weights, plane, rect, noshow=None):
   # Pick a random vector in the plane
   v1 = plane[:3]
-  v_ = np.random.random(3)
+  #v_ = np.random.random(3)
+  v_ = -np.array([0,0,1])
   v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2)))
   v0 = np.cross(v1,v2)
   mat = np.hstack((np.vstack((v0,v1,v2)),[[0],[0],[0]]))
@@ -88,9 +89,10 @@ def flatrot_opencl(normals, weights, plane, rect):
   # Build an output matrix out of the components
   #mat = np.vstack((v0,v1,v2))
   mat = np.vstack((q0,v1,q2))
-  axes = expmap.rot2axis(mat)
   
-  if 1:
+  
+  if not noshow:
+    axes = expmap.rot2axis(mat)
     # Reproject using the basis vectors for display
     X,Y,Z = np.rollaxis(normals,2)
     w = qxdyqz[:,:,3]
@@ -98,7 +100,7 @@ def flatrot_opencl(normals, weights, plane, rect):
     window.Refresh()
     pylab.waitforbuttonpress(0.001)
     
-  return axes
+  return mat
   
 def flatrot_numpy(normals,weights,plane):
   # Pick a random vector in the plane
@@ -339,7 +341,8 @@ def project(depth, u=None, v=None):
   y = X*mat[1,0] + Y*mat[1,1] + Z*mat[1,2] + mat[1,3]
   z = X*mat[2,0] + Y*mat[2,1] + Z*mat[2,2] + mat[2,3]
   w = X*mat[3,0] + Y*mat[3,1] + Z*mat[3,2] + mat[3,3]
-  return x/w, y/w, z/w
+  w = 1/w
+  return x*w, y*w, z*w
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
    global window
@@ -384,9 +387,9 @@ def show_normals(depth, rect, win=7):
 
      glScalef(1.5,1.5,1.5)
      glBegin(GL_LINES)
-     glColor3f(1,0,0); glVertex3f(-1,0,0); glVertex3f(1,0,0)
+     glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(1,0,0)
      glColor3f(0,1,0); glVertex3f(0,0,0); glVertex3f(0,1,0)
-     glColor3f(1,0,0); glVertex3f(0,0,-1); glVertex3f(0,0,1)
+     glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,1)
      glEnd()
      glPopMatrix()
 

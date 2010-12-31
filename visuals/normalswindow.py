@@ -13,10 +13,11 @@ class NormalsWindow(CameraWindow):
     self.XYZ = None
     self.UV = None
     self.COLOR = None
+    self.lookat = np.array([0,0,0])
     
   def on_draw(self):  
     
-    clearcolor = [0,0,0,0]
+    clearcolor = [1,1,1,0]
     glClearColor(*clearcolor)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
@@ -55,7 +56,7 @@ class NormalsWindow(CameraWindow):
       glColorPointerf(color)
       glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
       glEnable(GL_BLEND)
-    glColor3f(1,1,1)
+    glColor3f(1,1,1,1)
 
     glDrawElementsui(GL_POINTS, np.array(range(len(xyz))))
     glDisableClientState(GL_COLOR_ARRAY)

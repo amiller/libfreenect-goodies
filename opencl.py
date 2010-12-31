@@ -109,7 +109,7 @@ kernel void normal_compute(
   float4 xyz = mult_xyz(XYZW);
   xyz = normalize(xyz);
   if (xyz.z < 0) xyz = -xyz;
-  xyz.w = (xyz.z>.15);
+  xyz.w = (xyz.z>0.1);
   	
 	output[index] = xyz;
 }

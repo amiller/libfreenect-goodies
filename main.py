@@ -1,47 +1,20 @@
 import freenect
 import normals
+import numpy as np
 import scipy
 import cv
+import calibkinect
+import lattice
+import preprocess  
 
-# Use the mouse to find 4 points (x,y) on the corners of the table.
-# These will define the first ROI.
-boundpts = (260,218),(484,222),(570,409),(150,350)
-boundpts = np.array(boundpts)
-#array([-0.01685934,  0.94029319,  0.33994767,  0.27120995])
-#tableplane = np.array([-0.1340615 ,  0.66140062,  0.73795438,  0.47417785])
+preprocess.load('test')
 
-def find_plane(depth):
-  global tableplane,mask,background
-  # Build a mask of the image inside the convex points clicked
-  uv = np.mgrid[:480,:640][::-1]
-  mask = np.ones((480,640),bool)
-  for (x,y),(dx,dy) in zip(boundpts, boundpts - np.roll(boundpts,1,0)):
-    mask &= ((uv[0]-x)*dy - (uv[1]-y)*dx)<0
-  
-  # Find the average plane going through here
-  global n,w
-  n,w = normals.normals_c(depth.astype(np.float32))
-  mask &= (w>0)
-  abc = n[mask].mean(0)
-  abc /= np.sqrt(np.dot(abc,abc))
-  a,b,c = abc
-  x,y,z = [_[mask].mean() for _ in normals.project(depth)]
-  d = -(a*x+b*y+c*z)
-  tableplane = np.array([a,b,c,d])
-  background = np.array(depth)
-  background[~mask] = 0
-  figure(1);
-  imshow(background);
-
-def threshold_and_mask(depth):
-  from scipy.ndimage import binary_erosion, find_objects
-  mask = depth+3 < background
-  dec = 3
-  dil = binary_erosion(mask[::dec,::dec],iterations=2)
-  slices = scipy.ndimage.find_objects(dil)
-  a,b = slices[0]
-  rect = (b.start*dec,a.start*dec),(b.stop*dec,a.stop*dec)
-  return mask, rect
+def showimagergb(name, data):
+  image = cv.CreateImageHeader((data.shape[1], data.shape[0]),
+                             cv.IPL_DEPTH_8U,
+                             3)
+  cv.SetData(image, data.tostring(), data.dtype.itemsize * data.shape[1] * data.shape[2])
+  cv.ShowImage(name, image)
 
 def grab():
   global depth, rgb
@@ -50,25 +23,34 @@ def grab():
 # Grab a blank frame!
 def init_stage0():
   grab()
-  find_plane(depth)
-  try:
-    normals.show_normals(depth, None)
-  except:
-    pass
+  preprocess.find_plane(depth)
 
 # Grab a frame, assume we already have the table found
 def init_stage1():
   import pylab
   grab()
-  global mask, rect, r0, n, w
-  mask,rect = threshold_and_mask(depth)
+  global mask, rect, r0, n, w, cc
+  mask,rect = preprocess.threshold_and_mask(depth)
   (l,t),(r,b) = rect
-  print (b-t),'x', (r-l)
   n,w = normals.normals_opencl(depth.astype('f'), rect, 6)
+  w *= mask[t:b,l:r]
   #r0,_ = normals.mean_shift_optimize(n, w, r0, rect)
   #r0 = normals.flatrot_numpy(tableplane)
-  r0 = normals.flatrot_opencl(n,w,tableplane,rect)
-  #cv.ShowImage('rgb',rgb[::2,::2,::-1].clip(0,255/2)*2)
+  mat = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,noshow=True)
+  #mx,my,mz = lattice.lattice2(n,w,depth,mat,tableplane,rect)
+  
+  v,u = np.mgrid[t:b,l:r]
+  x,y,z = normals.project(depth[v,u], u.astype(np.float32), v.astype(np.float32))
+  rotpts = normals.apply_rot(mat, np.dstack((x,y,z)))
+  rotn = normals.apply_rot(mat, n)
+  cc = np.array(lattice.color_axis(*np.rollaxis(rotn,2),w=w))
+  
+  lattice.lattice2(n,w,depth,rgb,mat,preprocess.tableplane,rect)
+  #lattice.show_projections(rotpts,cc,w,rotn)
+
+  
+
+  showimagergb('rgb',rgb[::2,::2,::-1].clip(0,255/2)*2)
   #normals.show_normals(depth.astype('f'),rect, 5)
   pylab.waitforbuttonpress(0.001)
   #figure(1);

@@ -13,9 +13,11 @@ if not 'window' in globals():
   
 def scatter():
   global color, xyz
-  xyz = np.random.rand(1000,3)-0.5
+  xyz = 2*np.random.rand(1000,3)-1.0
+  xyz *= np.vstack(3*[np.sum(xyz*xyz,1)]).transpose()
   color = np.random.rand(1000,3)
   window.Refresh()
+
 
 @window.event
 def on_draw_axes():
@@ -26,7 +28,7 @@ def on_draw_axes():
   # projection matrices are initialized, etc)
   """
   # Draw the points
-  glPointSize(2)
+  glPointSize(1)
   glEnableClientState(GL_VERTEX_ARRAY)
   glVertexPointerf(xyz)
 
@@ -42,4 +44,11 @@ def on_draw_axes():
   glDisableClientState(GL_VERTEX_ARRAY)
   glDisable(GL_BLEND)
   
+@window.eventx
+def EVT_IDLE(event):
+  return
+  scatter()
+  #window.Refresh()
+  #event.RequestMore()
   
+window.Refresh()
