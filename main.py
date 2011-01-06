@@ -1,3 +1,6 @@
+# This is the system running module. It will deal with loading stored data,
+# interacting with the camera keeping tracking of the initialization states.
+
 import freenect
 import normals
 import numpy as np
@@ -6,6 +9,19 @@ import cv
 import calibkinect
 import lattice
 import preprocess  
+import grid
+
+# Wait on all the computes
+WAIT_COMPUTE=True
+SHOW_LATTICEPOINTS=False
+
+# Duplo block sizes
+LH = 0.0180
+LW = 0.0160
+
+# Jenga Block sizes (needs to be remeasured)
+#LH = 0.0150
+#LW = 0.0200
 
 preprocess.load('test')
 
@@ -32,43 +48,50 @@ def init_stage1():
   global mask, rect, r0, n, w, cc
   mask,rect = preprocess.threshold_and_mask(depth)
   (l,t),(r,b) = rect
-  n,w = normals.normals_opencl(depth.astype('f'), np.array(mask[t:b,l:r]), rect, 6)
-  w *= mask[t:b,l:r]
+  nw = normals.normals_opencl(depth.astype('f'), np.array(mask[t:b,l:r]), rect, 6)
+  n,w = nw[:,:,:3],nw[:,:,3]
   #r0,_ = normals.mean_shift_optimize(n, w, r0, rect)
   #r0 = normals.flatrot_numpy(tableplane)
   global modelmat
   if modelmat is None:  
+    global mat
     mat = np.zeros((3,4),'f')
-    mat[:3,:3] = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,noshow=False)
+    mat[:3,:3] = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,noshow=True)
     
     modelmat = lattice.lattice2(n,w,depth,rgb,mat,preprocess.tableplane,rect,init_t=True)
+    _modelmat = lattice.lattice2_opencl(n,w,depth,rgb,mat,preprocess.tableplane,rect,init_t=True)
     
   else:
-    mat = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,modelmat,noshow=False)
+    mat = normals.flatrot_opencl(n,w,preprocess.tableplane,rect,modelmat,noshow=True)
     mr = np.dot(mat, np.linalg.inv(modelmat[:3,:3])) # find the residual rotation
     ut = np.dot(mr, modelmat[:3,3])                  # apply the residual to update translation
     modelmat[:3,:3] = mat[:3,:3]
     modelmat[:3, 3] = ut
+    #modelmat = lattice.lattice2(n,w,depth,rgb,modelmat,preprocess.tableplane,rect,init_t=False)
+    modelmat = lattice.lattice2_opencl(n,w,depth,rgb,modelmat,preprocess.tableplane,rect,init_t=False)
 
-    modelmat = lattice.lattice2(n,w,depth,rgb,modelmat,preprocess.tableplane,rect,init_t=False)
-    print modelmat[:3,3]
   #lattice.show_projections(rotpts,cc,w,rotn)
+  grid.add_votes(lattice.XYZ, lattice.dXYZ, lattice.cXYZ)
+  #grid.carve_background(depth, lattice.XYZ)
 
-  
-
-  showimagergb('rgb',rgb[::2,::2,::-1].clip(0,255/2)*2)
+  #showimagergb('rgb',rgb[::2,::2,::-1].clip(0,255/2)*1)
+  #showimagergb('depth',np.dstack(3*[depth[::2,::2]/8]).astype(np.uint8))
   #normals.show_normals(depth.astype('f'),rect, 5)
-  pylab.waitforbuttonpress(0.001)
+  
+  #pylab.waitforbuttonpress(0.001)
+  
   #figure(1);
   #clf()
   #imshow(depth[t:b,l:r])
   
 r0 = np.array([0,0,0])
 modelmat = None
+grid.initialize()
 def go():
   global r0,modelmat
   r0 = np.array([0,0,0])
   modelmat = None
+  grid.initialize()
   while 1:
     init_stage1()
   

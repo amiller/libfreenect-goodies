@@ -12,7 +12,8 @@ class CameraWindow(Window):
     self.zoomdist = 1
     self.lookat = np.array([0,0,0])
     self._mpos = None
-
+    self.clearcolor = [0,0,0,0]
+    
     @self.eventx
     def EVT_LEFT_DOWN(event):
       self._mpos = event.Position
@@ -42,8 +43,7 @@ class CameraWindow(Window):
   def on_draw(self):  
     if not '_initOK' in dir(self): return
     
-    clearcolor = [0,0,0,0]
-    glClearColor(*clearcolor)
+    glClearColor(*self.clearcolor)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
 
@@ -66,7 +66,7 @@ class CameraWindow(Window):
       glRotatef(zAngle, 0.0, 0.0, 1.0);
       
     glScale(self.zoomdist,self.zoomdist,1)
-    glTranslate(0, 0,-1.5)
+    glTranslate(0, 0,-2.5)
     mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
     glTranslate(*-self.lookat)
 

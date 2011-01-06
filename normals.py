@@ -22,10 +22,9 @@ def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7):
   (l,t),(r,b) = rect
   assert depth.dtype == np.float32
   depth = depth[t:b,l:r]
-  depth[depth==2047] = -1e8
+  #depth[depth==2047] = -1e8
   global filt
   filt = scipy.ndimage.uniform_filter(depth,win) #2ms?
-  
   # You can profile this with %timeit opencl_compute_filter(rect), etc
   #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
   #opencl.compute_filter(rect)
@@ -33,7 +32,7 @@ def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7):
   opencl.load_filt(filt,rect)                # 329us
   opencl.compute_normals(rect)               # 1.51ms
   n = opencl.get_normals(rect=rect)          # 660us
-  return n[:,:,:3], n[:,:,3]
+  return n
  
   
 def normal_show(nx,ny,nz):

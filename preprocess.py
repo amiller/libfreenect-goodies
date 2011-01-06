@@ -19,6 +19,10 @@ per frame:
 # Use the mouse to find 4 points (x,y) on the corners of the table.
 # These will define the first ROI.
 boundpts = (257,220),(482,227),(533,408),(97,371)
+
+#boundpts = (286,213),(494,264),(451,412),(200,345)
+#boundpts = (354,262),(502,265),(501,363),(313,337)
+
 boundpts = np.array(boundpts)
 #array([-0.01685934,  0.94029319,  0.33994767,  0.27120995])
 #tableplane = np.array([-0.1340615 ,  0.66140062,  0.73795438,  0.47417785])
@@ -27,13 +31,17 @@ def threshold_and_mask(depth):
   import scipy
   from scipy.ndimage import binary_erosion, find_objects
   global mask
-  mask = (depth-3>openglbgLo)&(depth+3<background) #background
+  def m_():
+    return (depth>openglbgLo)&(depth<background) #background
+  mask = m_()
   dec = 3
   dil = binary_erosion(mask[::dec,::dec],iterations=2)
   slices = scipy.ndimage.find_objects(dil)
   a,b = slices[0]
-  rect = (b.start*dec-10,a.start*dec-10),(b.stop*dec+10,a.stop*dec+10)
-  return mask, rect
+  (l,t),(r,b) = (b.start*dec-7,a.start*dec-7),(b.stop*dec+7,a.stop*dec+7)
+  b += -(b-t)%16
+  r += -(r-l)%16
+  return mask, ((l,t),(r,b))
 
 
 def save(filename):
@@ -47,11 +55,12 @@ def save(filename):
   
 def load(filename):
   d = np.load('data/saves/%s.npz'%filename)
-  globals().update(d)
-  global backgroundM
-  backgroundM = normals.project(background)
-  
-  
+  globals().update(d) 
+  global openglbgLo, background
+  openglbgLo = openglbgLo.astype(np.uint16)
+  background = openglbgHi.astype(np.uint16)
+  background[background>=3] -= 3
+  openglbgLo += 3
   
 def find_plane(depth):
   global tableplane,tablemean,mask,maskw,background,backgroundM

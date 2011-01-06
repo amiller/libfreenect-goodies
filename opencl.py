@@ -43,36 +43,24 @@ kernel_normals = """
 %s
 
 const float EPSILON = 1e-5;
-const float PI = 3.1415;
+const float TAU = 6.2831853071;
 const int FILT = 3;
 const float DIST = 0.2; // Maximum distance away from the axis
 
-float4 matmul3(const float4 mat[3], const float4 r1) {
+inline float4 matmul3(const float4 mat[3], const float4 r1) {
   return (float4)(dot(mat[0],r1),dot(mat[1],r1),dot(mat[2],r1), 1);
 }
+inline float4 matmul4h(const float4 mat[4], const float4 r1) {
+  float W = 1.0 / dot(mat[3],r1);
+  return (float4)(W*dot(mat[0],r1),W*dot(mat[1],r1),W*dot(mat[2],r1), 1);
+}
 
-kernel void filter_compute(
-  global float *output,
-  global const short *input,
-  float4 bounds
-)
+inline float4 color_axis(float4 n)
 {
- 	unsigned int x = get_global_id(0);
-  unsigned int y = get_global_id(1);
-	unsigned int width = get_global_size(0);
-	unsigned int height = get_global_size(1);
-	unsigned int index = (y * width) + x;
-	
-  float o = 0;
-  if (x<bounds[0] || x>=bounds[2] || y<bounds[1] || y>=bounds[3]) return;
-
-	for (int i = -FILT; i <= FILT; i++) {
-    int w = index+i*width;
-	  for (int j = -FILT; j <= FILT; j++) {
-	    o += input[w+j];
-	  }
-  }
-  output[index] = o / ((FILT*2+1)*(FILT*2+1));
+  float4 n2 = n*n;
+  float4 c2 = n2.yzxw + n2.zxyw;
+  float4 cm = (float4) step(c2, (float4)(0.1)); // c2<DIST^2, peraxis weight
+  return cm;
 }
 
 // Main Kernel code
@@ -89,7 +77,10 @@ kernel void normal_compute(
 	unsigned int height = get_global_size(1);
 	unsigned int index = (y * width) + x;
 	
-	if (x<1 || x>=width-1 || y<1 || y>=height-1) return;
+	if (x<1 || x>=width-1 || y<1 || y>=height-1) {
+	  output[index] = (float4)(0);
+	  return;
+	}
 	x += bounds[0];
 	y += bounds[1];
 	
@@ -115,35 +106,6 @@ kernel void normal_compute(
 	output[index] = xyz;
 }
 
-kernel void meanshift_compute(
-  global float4 *output,
-  global float4 *cmout,
-	global const float4 *norm,
-	float4 m0, float4 m1, float4 m2
-)
-{
-  unsigned int x = get_global_id(0);
-  unsigned int y = get_global_id(1);
-  unsigned int width = get_global_size(0);
-  unsigned int height = get_global_size(1);
-  unsigned int index = (y * width) + x;
-  if (x<0 || x>=width || y<0 || y>=height) return;
-  if (norm[index].w == 0) { // Quit early if the weight is too low!
-    output[index] = (float4)(0);
-    return;  
-  }
-  
-  float4 n = norm[index]; n = (float4)(dot(m0,n), dot(m1,n), dot(m2,n), 1);
-  float4 n2 = n*n;
-  float4 c2 = n2.yzxw + n2.zxyw;
-  float4 cm = (float4) step(c2, (float4)(DIST*DIST)); // c2<DIST^2, peraxis weight
-  cmout[index] = cm;
-  //cmout[index] = norm[index];
-  
-  float4 dd = n.zxyw*cm.yzxw - n.yzxw*cm.zxyw;
-  output[index] = dd;
-}
-
 kernel void flatrot_compute(
 	global float4 *output,
 	global const float4 *norm,
@@ -156,7 +118,6 @@ kernel void flatrot_compute(
   unsigned int width = get_global_size(0);
   unsigned int height = get_global_size(1);
   unsigned int index = (y * width) + x;
-  if (x<0 || x>=width || y<0 || y>=height) return;
   if (norm[index].w == 0) { // Quit early if the weight is too low!
     output[index] = (float4)(0);
     return;  
@@ -169,12 +130,66 @@ kernel void flatrot_compute(
   float qz = 4*dz*dx*dx*dx - 4*dz*dz*dz * dx;
   float qx = dx*dx*dx*dx - 6*dx*dx*dz*dz + dz*dz*dz*dz;
   
-  float d=0.3;
-  float cx = max((float)(1.0-dy*dy/(d*d)), (float)0.0f);
-  float w = n.w * cx;
-  
-  output[index] = (float4)(qx*w, dy*w,qz*w, w);  
+  if (dy<0.3) output[index] = (float4)(qx, dy,qz, 1);  
+  else        output[index] = (float4)(0,0,0,0);
 }
+
+
+kernel void lattice2_compute(
+	global float4 *output,
+	global const float4 *norm,
+	global const float *filt,
+	float modulo,
+	float4 mx0, float4 mx1, float4 mx2, float4 mx3,
+	float4 mm0, float4 mm1, float4 mm2,
+	float4 bounds
+)
+{
+ unsigned int x = get_global_id(0);
+ unsigned int y = get_global_id(1);
+ unsigned int width = get_global_size(0);
+ unsigned int height = get_global_size(1);
+ unsigned int index = (y * width) + x;
+ //output[index*3+0] = (float4)(width,height,0,0);
+ //output[index*3+1] = (float4)(get_local_size(0),get_local_size(1),0,0);
+ //return;
+ if (norm[index].w == 0) { // Quit early if the weight is too low!
+   output[index*3+0] = (float4)(0,0,0,0);
+   output[index*3+1] = (float4)(0,0,0,0);
+   output[index*3+2] = (float4)(0,0,0,0);
+   return;  
+ }
+
+ float4 mxyz[4] = {mx0, mx1, mx2, mx3};
+ float4 mmat[3] = {mm0, mm1, mm2};
+ 
+ // Project the depth image
+ float4 XYZ = (float4)(x+bounds[0],y+bounds[1],filt[index],1);
+ XYZ = matmul4h(mxyz, XYZ);
+
+ // Project the normals
+ float4 dx_z_ = norm[index]; dx_z_.w = 0;
+ dx_z_ = matmul3(mmat, dx_z_);
+
+ // Find the color axis 
+ float4 cx_z_ = color_axis(dx_z_);
+ 
+ // Finally do the trig functions
+ float2 qsin, qcos;
+ qsin = sincos(XYZ.xz * modulo * TAU, &qcos);
+ float2 qx = (float2)(qcos.x,qsin.x);
+ float2 qz = (float2)(qcos.y,qsin.y);
+ if (cx_z_.x == 0) qx = (float2)(0);
+ if (cx_z_.z == 0) qz = (float2)(0);
+  
+ // output structure: 
+ // XYZ_, dxz,cxz, qx2z2
+ output[index*3+0] = XYZ;
+ output[index*3+1] = (float4)(dx_z_.xz, cx_z_.xz); 
+ output[index*3+2] = (float4)(qx,qz);
+}
+
+
 """ % matmul3('mult_xyz', np.linalg.inv(calibkinect.xyz_matrix()).transpose())
 
 program = cl.Program(context, kernel_normals).build("-cl-mad-enable")
@@ -185,16 +200,26 @@ def print_all():
   print_info(program.normal_compute, cl.kernel_info)
   print_info(queue, cl.command_queue_info)
   
+  
+# I have no explanation for this workaround. Presumably it's fixed in 
+# another version of pyopencl. Wtf. Getting the kernel like this
+# makes it go much faster when we __call__ it.
+def bullshit(self):
+  return self
+cl.Kernel.bullshit = bullshit
+program.flatrot_compute = program.flatrot_compute.bullshit()
+program.normal_compute = program.normal_compute.bullshit()
+program.lattice2_compute = program.lattice2_compute.bullshit()
+  
 #print_all()
 mask_buf = cl.Buffer(context, mf.READ_WRITE, 480*640)
 
 normals_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 filt_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4)
 
-axisweight_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
-axismean_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
-
 qxdyqz_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
+
+lattice_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4*3)
 
 def load_mask(mask, rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; 
@@ -208,12 +233,6 @@ def load_filt(filt, rect=((0,0),(640,480))):
   assert filt.shape == (B-T,R-L)
   return cl.enqueue_write_buffer(queue, filt_buf, filt).wait()
   
-def get_filter(rect=((0,0),(640,480))):
-  (L,T),(R,B) = rect;
-  filt = np.empty((B-T,R-L),'f')
-  cl.enqueue_read_buffer(queue, filt_buf, filt).wait()
-  return filt
-  
 def get_normals(normals=None, rect=((0,0),(640,480))):
   (L,T),(R,B) = rect;
   if normals is None: normals = np.empty((B-T,R-L,4),'f')
@@ -221,45 +240,65 @@ def get_normals(normals=None, rect=((0,0),(640,480))):
   assert normals.shape == (B-T,R-L,4)
   cl.enqueue_read_buffer(queue, normals_buf, normals).wait()
   return normals
-  
-def get_meanshift(axismean=None, axisweight=None, rect=((0,0),(640,480))):
-  (L,T),(R,B) = rect
-  if   axismean is None:   axismean = np.empty((B-T,R-L,4),'f')
-  if axisweight is None: axisweight = np.empty((B-T,R-L,4),'f')
-  assert   axismean.dtype == np.float32
-  assert axisweight.dtype == np.float32
-  assert   axismean.shape == (B-T,R-L,4)
-  assert axisweight.shape == (B-T,R-L,4)
-  cl.enqueue_read_buffer(queue,   axismean_buf,   axismean)
-  cl.enqueue_read_buffer(queue, axisweight_buf, axisweight).wait()
-  return axismean, axisweight
-  
+
 def get_flatrot(rect=((0,0),(640,480))):
   (L,T),(R,B) = rect  
   qxdyqz = np.empty((B-T,R-L,4),'f')
   cl.enqueue_read_buffer(queue, qxdyqz_buf, qxdyqz).wait()
   return qxdyqz
   
+def get_lattice2(rect=((0,0),(640,480))):
+  (L,T),(R,B) = rect  
+  lattice = np.empty((B-T,R-L,12),'f')
+  cl.enqueue_read_buffer(queue, lattice_buf, lattice).wait()
+  output = np.rollaxis(lattice,2)
+  X   = output[ 0   ]
+  Y   = output[ 1   ]
+  Z   = output[ 2   ]
+  dx  = output[ 4   ]
+  dz  = output[ 5   ]
+  cx  = output[ 6   ]
+  cz  = output[ 7   ]
+  qx2 = output[ 8:10]
+  qz2 = output[10:12]
+  return X,Y,Z,dx,dz,cx,cz,qx2,qz2
+  
 
 def compute_normals(rect=((0,0),(640,480))):
   (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
-  return program.normal_compute(queue, (R-L,B-T), None, normals_buf, filt_buf, mask_buf, bounds)
-  
-def compute_meanshift(mat=np.eye(3), rect=((0,0),(640,480)),):
-  mat_ = np.eye(4,dtype='f')
-  mat_[:3,:3] = mat
-  (L,T),(R,B) = rect;
-  return program.meanshift_compute(queue, (R-L,B-T), None, 
-    axismean_buf, axisweight_buf, normals_buf, mat_[0,:], mat_[1,:], mat_[2,:])
-    
-    
+  evt = program.normal_compute(queue, (R-L,B-T), None, normals_buf, filt_buf, mask_buf, bounds)
+  import main
+  if main.WAIT_COMPUTE: evt.wait()
+  return evt
+
 def compute_flatrot(mat, rect=((0,0),(640,480))):
   assert mat.dtype == np.float32
   assert mat.shape == (3,4)
+  def f(m): return m.astype('f')
   (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
-  return program.flatrot_compute(queue, (R-L,B-T), None, 
-    qxdyqz_buf, normals_buf, mat[0,:].astype('f'), mat[1,:].astype('f'), mat[2,:].astype('f'), bounds)
-    
 
+  evt = program.flatrot_compute(queue, (R-L,B-T), None,
+    qxdyqz_buf, normals_buf, f(mat[0,:]), f(mat[1,:]), f(mat[2,:]), bounds)
+  
+  import main
+  if main.WAIT_COMPUTE: evt.wait()
+  return evt
+  
+def compute_lattice2(modelmat, xyzmat, modulo, rect=((0,0),(640,480))):
+  assert modelmat.dtype == np.float32
+  assert   xyzmat.dtype == np.float32
+  assert modelmat.shape == (3,4)
+  assert   xyzmat.shape == (4,4)
+  def f(m): return m.astype('f')
+  (L,T),(R,B) = rect; bounds = np.array((L,T,R,B),'f')
+  evt = program.lattice2_compute(queue, (R-L,B-T), None, 
+    lattice_buf, normals_buf, filt_buf, np.float32(1.0/modulo),
+    f(  xyzmat[0,:]), f(  xyzmat[1,:]), f(  xyzmat[2,:]), f(xyzmat[3,:]),
+    f(modelmat[0,:]), f(modelmat[1,:]), f(modelmat[2,:]),
+    bounds)
+
+  import main
+  if main.WAIT_COMPUTE: evt.wait()
+  return evt
 
 	
