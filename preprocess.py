@@ -56,12 +56,8 @@ def save(filename):
 def load(filename):
   d = np.load('data/saves/%s.npz'%filename)
   globals().update(d) 
-  global openglbgLo, background
-  openglbgLo = openglbgLo.astype(np.uint16)
-  background = openglbgHi.astype(np.uint16)
-  background[background>=3] -= 3
-  openglbgLo += 3
-  
+
+
 def find_plane(depth):
   global tableplane,tablemean,mask,maskw,background,backgroundM
   # Build a mask of the image inside the convex points clicked
@@ -158,6 +154,11 @@ def find_plane(depth):
   background[~mask] = 2047
   background = np.minimum(background,openglbgHi)
   backgroundM = normals.project(background)
+  
+  openglbgLo = openglbgLo.astype(np.uint16)
+  background = background.astype(np.uint16)
+  background[background>=3] -= 3
+  openglbgLo += 3
   
   
   

@@ -6,6 +6,7 @@ import lattice
 import preprocess
 import normals
 import grid
+import opencl
 
 reload(main)
 reload(lattice)

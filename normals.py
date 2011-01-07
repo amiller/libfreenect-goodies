@@ -25,14 +25,11 @@ def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7):
   #depth[depth==2047] = -1e8
   global filt
   filt = scipy.ndimage.uniform_filter(depth,win) #2ms?
-  # You can profile this with %timeit opencl_compute_filter(rect), etc
-  #opencl.load_depth(depth.astype(np.int16)) # 1.98ms  
-  #opencl.compute_filter(rect)
-  opencl.load_mask(mask,rect)
   opencl.load_filt(filt,rect)                # 329us
+  opencl.load_mask(mask,rect)
   opencl.compute_normals(rect)               # 1.51ms
-  n = opencl.get_normals(rect=rect)          # 660us
-  return n
+  #n = opencl.get_normals(rect=rect)          # 660us
+  #return n
  
   
 def normal_show(nx,ny,nz):
@@ -66,18 +63,17 @@ def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
   
-def flatrot_opencl(normals, weights, plane, rect, guessmat=None, noshow=None):
+def flatrot_opencl(plane, rect, guessmat=None, noshow=None):
   """
   Find the orientation of the lattice using the (labeled) surface normals. 
   Assumes we know the table plane. If a guess is provided, then we use it.
   Otherwise it is chosen arbitrarily for initialization.
   """
-  
   if guessmat is None:
     # Pick a random vector in the plane
     v1 = plane[:3]
-    v_ = np.random.random(3)
-    #v_ = -np.array([0,0,1])
+    #v_ = np.random.random(3)
+    v_ = -np.array([0,0,1])
     v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2)))
     v0 = np.cross(v1,v2)
     mat = np.hstack((np.vstack((v0,v1,v2)),[[0],[0],[0]]))
@@ -87,8 +83,7 @@ def flatrot_opencl(normals, weights, plane, rect, guessmat=None, noshow=None):
     mat[:,3] = [0,0,0]
     
   opencl.compute_flatrot(mat.astype('f'), rect)
-  qxdyqz = opencl.get_flatrot(rect)
-  sq = np.nansum(np.nansum(qxdyqz,0),0)
+  sq = opencl.reduce_flatrot(rect)
   qqx = sq[0] / sq[3]
   qqz = sq[2] / sq[3]
   angle = np.arctan2(qqz,qqx)/4 
@@ -99,12 +94,13 @@ def flatrot_opencl(normals, weights, plane, rect, guessmat=None, noshow=None):
   # Build an output matrix out of the components
   mat = np.vstack((q0,v1,q2))
   
-  
   if not noshow:
     axes = expmap.rot2axis(mat)
+    nw = opencl.get_normals(rect=rect)
+    normals,w = nw[:,:,:3],nw[:,:,3]
     # Reproject using the basis vectors for display
     X,Y,Z = np.rollaxis(normals,2)
-    w = qxdyqz[:,:,3]
+    #w = qxdyqz[:,:,3]
     update(X,Y,Z, COLOR=(w+.7,w*0+.7,w*0+.7,w*0+.5), AXES=axes)
     window.Refresh()
     pylab.waitforbuttonpress(0.001)

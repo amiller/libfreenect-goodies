@@ -40,7 +40,7 @@ def project(X, Y, Z, mat):
   
 
   
-def lattice2_opencl(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
+def lattice2_opencl(depth,rgb,mat,tableplane,rect,init_t=None):
   from main import LH,LW
 
   (l,t),(r,b) = rect
@@ -54,23 +54,23 @@ def lattice2_opencl(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
   matxyz = np.dot(modelmat, calibkinect.xyz_matrix().astype('f'))
   
   # Returns warped coordinates, and sincos values for the lattice
-  opencl.compute_lattice2(modelmat[:3,:4], matxyz, LW, rect)
+  opencl.compute_lattice2(modelmat[:3,:4], LW, rect)
   
-  global qx2,qz2
+  global X,Y,Z,qx2,qz2,cx,cz
   X,Y,Z,dx,dz,cx,cz,qx2,qz2 = opencl.get_lattice2(rect)
-  #print [i[0,0] for i in X,Y,dx,dz]
-  #return X,Y,Z
-    
+
+  cxcz,qx2qz2 = opencl.reduce_lattice2(rect)
+  
   # Find the circular mean, using weights
   def cmean(mxy,c):
-    x,y = mxy.reshape(2,-1).sum(1) / c.sum()
+    x,y = mxy / c
     a2 = np.arctan2(y,x) / (2*np.pi) * LW
     if np.isnan(a2): a2 = 0
     return a2
   
   global meanx,meanz
-  meanx = cmean(qx2,cx)
-  meanz = cmean(qz2,cz)
+  meanx = cmean(qx2qz2[:2],cxcz[0])
+  meanz = cmean(qx2qz2[2:],cxcz[1])
   modelmat[:,3] -= np.array([meanx, 0, meanz, 0])
   
   def fix_xz():
@@ -147,11 +147,11 @@ def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
   global meanx, meany, meanz
   meanx = circular_mean(X[cx>0],LW)
   meanz = circular_mean(Z[cz>0],LW)
-  print meanx, meanz
+
   ax,az = np.sum(cx>0),np.sum(cz>0)
   ax,az = [np.minimum(_/30.0,1.0) for _ in ax,az]
   modelmat[:,3] -= np.array([ax*meanx, 0, az*meanz, 0])
-  #print modelmat[:,3]
+
   X -= (ax)*meanx
   Z -= (az)*meanz
   
