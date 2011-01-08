@@ -40,10 +40,8 @@ def project(X, Y, Z, mat):
   
 
   
-def lattice2_opencl(depth,rgb,mat,tableplane,rect,init_t=None):
+def lattice2_opencl(mat,tableplane,init_t=None):
   from main import LH,LW
-
-  (l,t),(r,b) = rect
   assert mat.shape == (3,4)
   global modelmat
   modelmat = np.eye(4,dtype='f')
@@ -54,12 +52,8 @@ def lattice2_opencl(depth,rgb,mat,tableplane,rect,init_t=None):
   matxyz = np.dot(modelmat, calibkinect.xyz_matrix().astype('f'))
   
   # Returns warped coordinates, and sincos values for the lattice
-  opencl.compute_lattice2(modelmat[:3,:4], LW, rect)
-  
-  global X,Y,Z,qx2,qz2,cx,cz
-  X,Y,Z,dx,dz,cx,cz,qx2,qz2 = opencl.get_lattice2(rect)
-
-  cxcz,qx2qz2 = opencl.reduce_lattice2(rect)
+  opencl.compute_lattice2(modelmat[:3,:4], LW)
+  cxcz,qx2qz2 = opencl.reduce_lattice2()
   
   # Find the circular mean, using weights
   def cmean(mxy,c):
@@ -72,33 +66,36 @@ def lattice2_opencl(depth,rgb,mat,tableplane,rect,init_t=None):
   meanx = cmean(qx2qz2[:2],cxcz[0])
   meanz = cmean(qx2qz2[2:],cxcz[1])
   modelmat[:,3] -= np.array([meanx, 0, meanz, 0])
-  
-  def fix_xz():
-    np.add(X, np.float32(-meanx), X)
-    np.add(Z, np.float32(-meanz), Z)
-  fix_xz()
+
 
   # If we don't have a good initialization for the model space translation,
   # use the centroid of the surface points.  
   if init_t:  
+    global X,Y,Z,qx2,qz2,cx,cz
+    X,Y,Z,dx,dz,cx,cz,qx2,qz2 = opencl.get_lattice2()
+    
+    def fix_xz():
+      np.add(X, np.float32(-meanx), X)
+      np.add(Z, np.float32(-meanz), Z)
+    fix_xz()
+    
     modelmat[:,3] -= np.round([X[cx>0].mean()/LW, 0, Z[cz>0].mean()/LW, 0])*LW
-    matxyz = np.dot(modelmat, calibkinect.xyz_matrix())
-    v,u = np.mgrid[t:b,l:r]
-    X,Y,Z = project(u.astype('f'),v.astype('f'),depth[t:b,l:r].astype('f'), matxyz)
   
-  # Stacked data in model space
-  global XYZ, dXYZ, cXYZ
-  XYZ  = ((X,Y,Z))
-  dXYZ = ((dx, None, dz))
-  cXYZ = ((cx, None, cz))
-
+    # Stacked data in model space
+    global XYZ, dXYZ, cXYZ
+    XYZ  = ((X,Y,Z))
+    dXYZ = ((dx, None, dz))
+    cXYZ = ((cx, None, cz))
+    
+    
   import main
   if main.SHOW_LATTICEPOINTS:
-    v,u = np.mgrid[t:b,l:r]
-    Xo,Yo,Zo = project(u,v,depth[t:b,l:r], calibkinect.xyz_matrix())
-    cany = (cx>0)|(cz>0)
-    R,G,B = cx[cany],cx[cany]*0,cz[cany]; 
-    update(Xo[cany],Yo[cany],Zo[cany],COLOR=(R,G,B,R+G+B))
+    X,Y,Z,face = np.rollaxis(opencl.get_modelxyz(),1)
+    Xo,Yo,Zo,_ = np.rollaxis(opencl.get_xyz(),1)
+    
+    R,G,B = np.abs(face)==1,np.abs(face)==3,np.abs(face)==4
+    #R,G,B = cx,cx*0,cz
+    update(Xo,Yo,Zo,COLOR=(R,G,B,R*0+1))
     window.Refresh()
 
   return modelmat[:3,:4]
@@ -190,7 +187,8 @@ def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   global window
   #window.lookat = np.array([0,0,0])
-  window.lookat = preprocess.tablemean
+  window.lookat = preprocess.bgL['tablemean']
+  window.upvec = preprocess.bgL['tableplane'][:3]
   
   xyz = np.vstack((X.flatten(),Y.flatten(),Z.flatten())).transpose()
   mask = Z.flatten()<10
@@ -235,7 +233,7 @@ def on_draw_axes():
   # Draw the gray table
   glBegin(GL_QUADS)
   glColor(0.6,0.7,0.7,1)
-  for x,y,z in preprocess.boundptsM:
+  for x,y,z in preprocess.bgL['boundptsM']:
     glVertex(x,y,z)
   glEnd()
   

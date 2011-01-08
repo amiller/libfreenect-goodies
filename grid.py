@@ -254,7 +254,7 @@ def on_draw_axes():
   # Draw the gray table
   glBegin(GL_QUADS)
   glColor(0.6,0.7,0.7,1)
-  for x,y,z in preprocess.boundptsM:
+  for x,y,z in preprocess.bgL['boundptsM']:
     glVertex(x,y,z)
   glEnd()
   

@@ -2,6 +2,13 @@
 #include <math.h>
 #include <stdio.h>
 
+void inrange(unsigned short *a, char *out,
+			 unsigned short *hi, unsigned short *lo, size_t length)
+{
+	int i;
+	for (i = 0; i < length; i++) 
+		out[i] = a[i] > lo[i] && a[i] < hi[i];
+}
 
 void gradient(float *depth, float *dx, float *dy, int h, int w)
 {

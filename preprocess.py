@@ -16,50 +16,65 @@ per frame:
   - rect: 
 """
 
+RIGHT2LEFT = array([[-0.41321657,  0.55851605, -0.71924396, -0.53439743],
+       [-0.51655998,  0.50669479,  0.69023628,  0.42204575],
+       [ 0.74994523,  0.6567497 ,  0.07913234, -0.61595269],
+       [ 0.        ,  0.        ,  0.        ,  1.        ]])
+
+#RIGHT2LEFT = np.eye(4)
+
+
 # Use the mouse to find 4 points (x,y) on the corners of the table.
 # These will define the first ROI.
-boundpts = (257,220),(482,227),(533,408),(97,371)
+boundptsL = np.array(((164,203),(334,146),(604,311),(310,435)))
+boundptsR = np.array(((33,287),(274,114),(478,195),(318,435)))
 
-#boundpts = (286,213),(494,264),(451,412),(200,345)
-#boundpts = (354,262),(502,265),(501,363),(313,337)
+import ctypes
+from ctypes import POINTER as PTR, c_byte, c_ushort, c_size_t
+speedup_ctypes = ctypes.cdll.LoadLibrary('speedup_ctypes.so')
+speedup_ctypes.inrange.argtypes = [PTR(c_ushort), PTR(c_byte), PTR(c_ushort), PTR(c_ushort), c_size_t]
 
-boundpts = np.array(boundpts)
-#array([-0.01685934,  0.94029319,  0.33994767,  0.27120995])
-#tableplane = np.array([-0.1340615 ,  0.66140062,  0.73795438,  0.47417785])
-
-def threshold_and_mask(depth):
+def threshold_and_mask(depth,bg):
   import scipy
   from scipy.ndimage import binary_erosion, find_objects
   global mask
   def m_():
-    return (depth>openglbgLo)&(depth<background) #background
-  mask = m_()
+    # Optimize this in C?
+    return (depth>bg['bgLo'])&(depth<bg['bgHi']) #background
+  def m2_():
+    mm = np.empty((480,640),'bool')
+    speedup_ctypes.inrange(depth.ctypes.data_as(PTR(c_ushort)), 
+                mm.ctypes.data_as(PTR(c_byte)), 
+                bg['bgHi'].ctypes.data_as(PTR(c_ushort)), 
+                bg['bgLo'].ctypes.data_as(PTR(c_ushort)), 480*640)
+    return mm
+  mask = m2_()
   dec = 3
   dil = binary_erosion(mask[::dec,::dec],iterations=2)
   slices = scipy.ndimage.find_objects(dil)
   a,b = slices[0]
-  (l,t),(r,b) = (b.start*dec-7,a.start*dec-7),(b.stop*dec+7,a.stop*dec+7)
+  (l,t),(r,b) = (b.start*dec-10,a.start*dec-10),(b.stop*dec+7,a.stop*dec+7)
   b += -(b-t)%16
   r += -(r-l)%16
+  if t<0: t+= 16
+  if l<0: l+= 16
   return mask, ((l,t),(r,b))
 
 
 def save(filename):
-  np.savez('data/saves/%s'%filename, 
-    tableplane=tableplane, tablemean=tablemean,
-    mask=mask, 
-    background=background, backgroundM=backgroundM,
-    openglbgHi=openglbgHi, openglbgLo=openglbgLo,
-    boundpts=boundpts, boundptsM=boundptsM)
-    
-  
+  import cPickle as pickle
+  with open('data/saves/%s' % filename,'w') as f:
+    pickle.dump(dict(bgL=bgL, bgR=bgR), f)
+      
 def load(filename):
-  d = np.load('data/saves/%s.npz'%filename)
-  globals().update(d) 
+  import cPickle as pickle
+  with open('data/saves/%s' % filename,'r') as f:
+    globals().update(pickle.load(f)) 
 
 
-def find_plane(depth):
-  global tableplane,tablemean,mask,maskw,background,backgroundM
+
+def _find_plane(depth, boundpts):
+  
   # Build a mask of the image inside the convex points clicked
   u,v = uv = np.mgrid[:480,:640][::-1]
   mask = np.ones((480,640),bool)
@@ -78,7 +93,6 @@ def find_plane(depth):
   tableplane = np.array([a,b,c,d])
   tablemean = np.array([x,y,z])
   
-  
   # Backproject the table plane into the image using inverse transpose 
   global tb0
   tb0 = np.dot(calibkinect.xyz_matrix().transpose(), tableplane)
@@ -93,9 +107,6 @@ def find_plane(depth):
     xp, yp, zp, wp  = np.dot(calibkinect.xyz_matrix(), [up,vp,dp,1])
     xp  /= wp ; yp  /= wp ; zp  /= wp;
     boundptsM += [[xp,yp,zp]]
-    
-
-  
   
   # Use OpenGL and framebuffers to draw the table and the walls
   fbo = glGenFramebuffers(1)
@@ -142,13 +153,13 @@ def find_plane(depth):
   openglbgLo *= 3000
   #openglbgLo[openglbgLo>=2047] = 0
   openglbgHi[openglbgHi>=2047] = 0
+  openglbgLo[openglbgHi==openglbgLo] = 0
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glDeleteRenderbuffers(1, [rb]);
   glDeleteFramebuffers(1, [fbo]);
   glReadBuffer(GL_BACK)
   glDrawBuffer(GL_BACK)
-  
   
   background = np.array(depth)
   background[~mask] = 2047
@@ -159,13 +170,24 @@ def find_plane(depth):
   background = background.astype(np.uint16)
   background[background>=3] -= 3
   openglbgLo += 3
-  
-  
-  
+    
   if 1:
     figure(0);
     imshow(openglbgLo)
     
     figure(1);
-    imshow(background);
+    imshow(background)
+    
+  return dict(
+    bgLo = openglbgLo,
+    bgHi = background,
+    boundpts = boundpts,
+    boundptsM = boundptsM,
+    tablemean = tablemean,
+    tableplane = tableplane
+  )
   
+def find_plane(depthL, depthR):
+  global bgL, bgR
+  bgL = _find_plane(depthL, boundptsL)
+  bgR = _find_plane(depthR, boundptsR)

@@ -18,16 +18,36 @@ except:
 matarg = np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags='C_CONTIGUOUS')
 speedup.normals.argtypes = [matarg,  matarg, matarg,  matarg, matarg, matarg, matarg, ctypes.c_int, ctypes.c_int]
 
-def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7):
+
+def normals_opencl2(depthL, maskL, rectL,
+                    depthR, maskR, rectR, win=7):
+  assert depthL.dtype == np.float32
+  assert depthR.dtype == np.float32
+  
+  global filtL, filtR
+
+  opencl.load_mask(maskL,'LEFT')
+  opencl.load_mask(maskR,'RIGHT')
+  
+  filtL = scipy.ndimage.uniform_filter(depthL,win) 
+  opencl.load_filt(filtL,'LEFT')                    
+  opencl.compute_normals('LEFT')  
+  
+  filtR = scipy.ndimage.uniform_filter(depthR,win)  
+  opencl.load_filt(filtR,'RIGHT')                    
+  opencl.compute_normals('RIGHT').wait()
+  
+  
+def normals_opencl(depth, mask, rect=((0,0),(640,480)), win=7, offset=0):
   (l,t),(r,b) = rect
   assert depth.dtype == np.float32
   depth = depth[t:b,l:r]
   #depth[depth==2047] = -1e8
   global filt
-  filt = scipy.ndimage.uniform_filter(depth,win) #2ms?
-  opencl.load_filt(filt,rect)                # 329us
+  filt = scipy.ndimage.uniform_filter(depth,win)  #2ms?
+  opencl.load_filt(filt,rect)                     # 329us
   opencl.load_mask(mask,rect)
-  opencl.compute_normals(rect)               # 1.51ms
+  opencl.compute_normals(rect)                # 1.51ms
   #n = opencl.get_normals(rect=rect)          # 660us
   #return n
  
@@ -63,7 +83,7 @@ def normals_numpy(depth, rect=((0,0),(640,480)), win=7):
   #return x/w, y/w, z/w
   return np.dstack((x/w,y/w,z/w)), weights
   
-def flatrot_opencl(plane, rect, guessmat=None, noshow=None):
+def flatrot_opencl(plane, guessmat=None, noshow=None):
   """
   Find the orientation of the lattice using the (labeled) surface normals. 
   Assumes we know the table plane. If a guess is provided, then we use it.
@@ -82,8 +102,9 @@ def flatrot_opencl(plane, rect, guessmat=None, noshow=None):
     mat = np.array(guessmat)
     mat[:,3] = [0,0,0]
     
-  opencl.compute_flatrot(mat.astype('f'), rect)
-  sq = opencl.reduce_flatrot(rect)
+  opencl.compute_flatrot(mat.astype('f'))
+  sq = opencl.reduce_flatrot()
+  
   qqx = sq[0] / sq[3]
   qqz = sq[2] / sq[3]
   angle = np.arctan2(qqz,qqx)/4 
@@ -96,11 +117,20 @@ def flatrot_opencl(plane, rect, guessmat=None, noshow=None):
   
   if not noshow:
     axes = expmap.rot2axis(mat)
-    nw = opencl.get_normals(rect=rect)
-    normals,w = nw[:,:,:3],nw[:,:,3]
+    
+    nwL,nwR = opencl.get_normals()
+    nL,wL = nwL[:,:,:3],nwL[:,:,3]
+    nR,wR = nwR[:,:,:3],nwR[:,:,3]
+    
     # Reproject using the basis vectors for display
-    X,Y,Z = np.rollaxis(normals,2)
-    #w = qxdyqz[:,:,3]
+    #X,Y,Z = np.rollaxis(nL.reshape(-1,3),1)
+    #w = wL.reshape(-1)
+    #X,Y,Z = np.rollaxis(nR.reshape(-1,3),1)
+    #w = wR.reshape(-1)
+
+    X,Y,Z = np.rollaxis(np.vstack((nL.reshape(-1,3),nR.reshape(-1,3))),1)
+    w = np.vstack((wL.reshape(-1,1),wR.reshape(-1,1)))
+    
     update(X,Y,Z, COLOR=(w+.7,w*0+.7,w*0+.7,w*0+.5), AXES=axes)
     window.Refresh()
     pylab.waitforbuttonpress(0.001)
@@ -110,7 +140,8 @@ def flatrot_opencl(plane, rect, guessmat=None, noshow=None):
 def flatrot_numpy(normals,weights,plane):
   # Pick a random vector in the plane
   v1 = plane[:3].astype('f')
-  v_ = np.random.random(3)
+  #v_ = np.random.random(3)
+  v_ = -np.array([0,0,1])
   v2 = np.cross(v1,v_); v2 = (v2 / np.sqrt(np.dot(v2,v2))).astype('f')
   v0 = np.cross(v1,v2).astype('f')
   global dx,dy,dz, qx, qz
@@ -144,7 +175,7 @@ def flatrot_numpy(normals,weights,plane):
   mat = np.vstack((q0,v1,q2))
   axes = expmap.rot2axis(mat)
   
-  if 0:
+  if 1:
     # Reproject using the basis vectors for display
     if 1:
       X = dx*v0[0] + dy*v1[0]*1 + dz*v2[0]
@@ -379,6 +410,7 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
   if not AXES is None:
     # Rotate the axes
     axes_rotation[:3,:3] = expmap.axis2rot(-AXES)
+  window.upvec = axes_rotation[:3,1]
 
   if not UV is None:
     U,V = UV

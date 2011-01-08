@@ -14,6 +14,7 @@ class NormalsWindow(CameraWindow):
     self.UV = None
     self.COLOR = None
     self.lookat = np.array([0,0,0])
+    self.upvec = np.array([0,1,0])
     
   def on_draw(self):  
     
@@ -35,16 +36,17 @@ class NormalsWindow(CameraWindow):
     # flush that stack in case it's broken from earlier
     glPushMatrix()
     glLoadIdentity()
-
-    def mouse_rotate(xAngle, yAngle, zAngle):
-      glRotatef(xAngle, 1.0, 0.0, 0.0);
-      glRotatef(yAngle, 0.0, 1.0, 0.0);
-      glRotatef(zAngle, 0.0, 0.0, 1.0);
-      
+    
+    R = np.cross(self.upvec, [0,0,1])
+    R /= np.sqrt(np.dot(R,R))
+    
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-2.5)
-    mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
+    glRotatef(self.rotangles[0], *R)
+    glRotatef(self.rotangles[1], *self.upvec)
+
     glTranslate(*-self.lookat)
+
 
     # Draw the points
     glPointSize(2)

@@ -11,6 +11,7 @@ class CameraWindow(Window):
     self.rotangles = [0,0]
     self.zoomdist = 1
     self.lookat = np.array([0,0,0])
+    self.upvec = np.array([0,1,0])
     self._mpos = None
     self.clearcolor = [0,0,0,0]
     
@@ -59,15 +60,15 @@ class CameraWindow(Window):
 
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
-
-    def mouse_rotate(xAngle, yAngle, zAngle):
-      glRotatef(xAngle, 1.0, 0.0, 0.0);
-      glRotatef(yAngle, 0.0, 1.0, 0.0);
-      glRotatef(zAngle, 0.0, 0.0, 1.0);
       
+    R = np.cross(self.upvec, [0,0,1])
+    R /= np.sqrt(np.dot(R,R))
+    
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-2.5)
-    mouse_rotate(self.rotangles[0], self.rotangles[1], 0);
+    glRotatef(self.rotangles[0], *self.upvec)
+    glRotatef(self.rotangles[1], *R)
+
     glTranslate(*-self.lookat)
 
     self._wrap('on_draw_axes')
