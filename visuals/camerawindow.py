@@ -48,26 +48,27 @@ class CameraWindow(Window):
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
 
-    # flush that stack in case it's broken from earlier
-    try:
-      while glPopMatrix(): pass
-    except:
-      pass
-      
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluPerspective(60, 4/3., 0.3, 200)
 
     glMatrixMode(GL_MODELVIEW)
+    # flush that stack in case it's broken from earlier
+    try:
+      while 1: glPopMatrix()
+    except:
+      pass
+
+    glPushMatrix()
     glLoadIdentity()
-      
+
     R = np.cross(self.upvec, [0,0,1])
     R /= np.sqrt(np.dot(R,R))
-    
+
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-2.5)
-    glRotatef(self.rotangles[0], *self.upvec)
-    glRotatef(self.rotangles[1], *R)
+    glRotatef(self.rotangles[0], *R)
+    glRotatef(self.rotangles[1], *self.upvec)
 
     glTranslate(*-self.lookat)
 

@@ -42,10 +42,9 @@ def project(X, Y, Z, mat):
   
 def lattice2_opencl(mat,tableplane,init_t=None):
   from main import LH,LW
-  assert mat.shape == (3,4)
+  assert mat.shape == (4,4)
   global modelmat
-  modelmat = np.eye(4,dtype='f')
-  modelmat[:3,:4] = mat
+  modelmat = np.array(mat)
   modelmat[1,3] = tableplane[3]
 
   # Build a matrix that can project the depth image into model space
@@ -53,54 +52,45 @@ def lattice2_opencl(mat,tableplane,init_t=None):
   
   # Returns warped coordinates, and sincos values for the lattice
   opencl.compute_lattice2(modelmat[:3,:4], LW)
-  cxcz,qx2qz2 = opencl.reduce_lattice2()
   
+  global cx,cz,face
+  # If we don't have a good initialization for the model space translation,
+  # use the centroid of the surface points.  
+  if init_t:  
+    global face
+    X,Y,Z,face = np.rollaxis(opencl.get_modelxyz(),1)
+    cx,cz = np.rollaxis(np.frombuffer(np.array(face).data, dtype='i2').reshape(-1,2),1)
+    
+    modelmat[:,3] -= np.round([X[cz!=0].mean()/LW, 0, Z[cx!=0].mean()/LW, 0])*LW
+    opencl.compute_lattice2(modelmat[:3,:4], LW)
+    
+
   # Find the circular mean, using weights
   def cmean(mxy,c):
     x,y = mxy / c
     a2 = np.arctan2(y,x) / (2*np.pi) * LW
     if np.isnan(a2): a2 = 0
     return a2
-  
+
   global meanx,meanz
+  cxcz,qx2qz2 = opencl.reduce_lattice2()
   meanx = cmean(qx2qz2[:2],cxcz[0])
   meanz = cmean(qx2qz2[2:],cxcz[1])
   modelmat[:,3] -= np.array([meanx, 0, meanz, 0])
 
 
-  # If we don't have a good initialization for the model space translation,
-  # use the centroid of the surface points.  
-  if init_t:  
-    global X,Y,Z,qx2,qz2,cx,cz
-    X,Y,Z,dx,dz,cx,cz,qx2,qz2 = opencl.get_lattice2()
-    
-    def fix_xz():
-      np.add(X, np.float32(-meanx), X)
-      np.add(Z, np.float32(-meanz), Z)
-    fix_xz()
-    
-    modelmat[:,3] -= np.round([X[cx>0].mean()/LW, 0, Z[cz>0].mean()/LW, 0])*LW
-  
-    # Stacked data in model space
-    global XYZ, dXYZ, cXYZ
-    XYZ  = ((X,Y,Z))
-    dXYZ = ((dx, None, dz))
-    cXYZ = ((cx, None, cz))
-    
-    
   import main
   if main.SHOW_LATTICEPOINTS:
-    X,Y,Z,face = np.rollaxis(opencl.get_modelxyz(),1)
+    _,_,_,face = np.rollaxis(opencl.get_modelxyz(),1)
     Xo,Yo,Zo,_ = np.rollaxis(opencl.get_xyz(),1)
     
-    R,G,B = np.abs(face)==1,np.abs(face)==3,np.abs(face)==4
-    #R,G,B = cx,cx*0,cz
+    cx,cz = np.rollaxis(np.frombuffer(np.array(face).data, dtype='i2').reshape(-1,2),1)
+    R,G,B = np.abs(cx),cx*0,np.abs(cz)
     update(Xo,Yo,Zo,COLOR=(R,G,B,R*0+1))
     window.Refresh()
 
-  return modelmat[:3,:4]
-    
-    
+  return modelmat
+  
   
 def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
   """
@@ -113,10 +103,10 @@ def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
   from main import LH,LW
   
   (l,t),(r,b) = rect
-  assert mat.shape == (3,4)
+  assert mat.shape == (4,4)
   global modelmat
   modelmat = np.eye(4,dtype='f')
-  modelmat[:3,:4] = mat
+  modelmat[:3,:4] = mat[:3,:4]
   modelmat[1,3] = tableplane[3]
   
   # Build a matrix that can project the depth image into model space
@@ -181,7 +171,7 @@ def lattice2(n,w,depth,rgb,mat,tableplane,rect,init_t=None):
 
     window.Refresh()
     
-  return modelmat[:3,:4]
+  return modelmat
 
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
@@ -256,7 +246,7 @@ def on_draw_axes():
   # Draw a grid for the model coordinate space
   glLineWidth(1)
   glBegin(GL_LINES)
-  GR = 8
+  GR = grid.GRIDRAD
   glColor3f(0.2,0.2,0.4)
   for j in range(0,1):
     for i in range(-GR,GR+1):

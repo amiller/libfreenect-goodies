@@ -7,6 +7,8 @@ import preprocess
 import normals
 import grid
 import opencl
+import carve
+import bgthread
 
 reload(main)
 reload(lattice)
@@ -14,6 +16,8 @@ reload(preprocess)
 reload(normals)
 reload(grid)
 reload(opencl)
+reload(carve)
+reload(bgthread)
 
 from pylab import *
 from main import *

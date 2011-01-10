@@ -16,7 +16,7 @@ class NormalsWindow(CameraWindow):
     self.lookat = np.array([0,0,0])
     self.upvec = np.array([0,1,0])
     
-  def on_draw(self):  
+  def on_draw(self):
     
     clearcolor = [1,1,1,0]
     glClearColor(*clearcolor)
@@ -29,11 +29,16 @@ class NormalsWindow(CameraWindow):
 
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(60, 4/3., 0.3, 200)
-    #gluOrtho2D(-10,10,-10,10)
+    #gluPerspective(60, 4/3., 0.3, 200)
+    glOrtho(-1.33,1.33,-1,1,0.3,200)
 
     glMatrixMode(GL_MODELVIEW)
     # flush that stack in case it's broken from earlier
+    try:
+      while 1: glPopMatrix()
+    except:
+      pass
+      
     glPushMatrix()
     glLoadIdentity()
     
@@ -46,7 +51,6 @@ class NormalsWindow(CameraWindow):
     glRotatef(self.rotangles[1], *self.upvec)
 
     glTranslate(*-self.lookat)
-
 
     # Draw the points
     glPointSize(2)

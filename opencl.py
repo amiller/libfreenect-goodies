@@ -213,8 +213,7 @@ kernel void lattice2_compute(
   float2 dxz = dxyz_.xz;
   //float2 cxz = color_axis(dxyz_).xz;
   float2 cxz = (float2)-1 + step(dxz,(float2)(-CLIM)) + step(dxz,(float2)(CLIM));
-  float label = 4*cxz.s1 + cxz.s0;
-
+  float label = as_float((short2)(cxz.s0,cxz.s1));
   XYZ.w = label;
 
   // Finally do the trig functions
@@ -231,6 +230,30 @@ kernel void lattice2_compute(
   qx2z2[index] = (float4)(qx,qz);
 }
 
+
+kernel void gridinds_compute(
+  global uchar4 *gridinds,
+  global const float4 *modelxyz,
+  const float xfix, const float zfix, 
+  const float LW, const float LH,
+  const float4 gridmin, const float4 gridmax
+)
+{
+  unsigned int index = get_global_id(0);
+  float4 xyzf = modelxyz[index];
+  short2 cxz = as_short2(xyzf.w);
+  float4 f1 = (float4)(cxz.s0*.5,0,cxz.s1*.5,0);
+  float4 fix = (float4)(xfix,0,zfix,0);
+  
+  float4 mod = (float4)(LW,LH,LW,1);
+  
+  uchar4 occ = convert_uchar4(floor(-gridmin + (xyzf-fix)/mod + f1));
+  uchar4 vac = occ - (uchar4)(cxz.s0,0,cxz.s1,0);
+  occ.w = cxz.s0 + cxz.s1;
+  vac.w = occ.w;
+  gridinds[2*index+0] = occ;
+  gridinds[2*index+1] = vac;
+}
 
 """ % (normal_maker('LEFT',  np.linalg.inv(calibkinect.xyz_matrix()).transpose(),
                             calibkinect.xyz_matrix(), np.eye(4)),
@@ -258,7 +281,8 @@ program.normal_compute_LEFT = program.normal_compute_LEFT.bullshit()
 program.normal_compute_RIGHT = program.normal_compute_RIGHT.bullshit()
 program.lattice2_compute = program.lattice2_compute.bullshit()
 program.float4_sum = program.float4_sum.bullshit()
-  
+program.gridinds_compute = program.gridinds_compute.bullshit()
+
 #print_all()
 mask_buf    = cl.Buffer(context, mf.READ_WRITE, 480*640)
 
@@ -272,7 +296,9 @@ face_buf    = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 qxqz_buf    = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 model_buf   = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 
-debug_buf     = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
+gridinds_buf = cl.Buffer(context, mf.READ_WRITE, 480*640*4*2)
+
+#debug_buf     = cl.Buffer(context, mf.READ_WRITE, 480*640*4*4)
 reduce_buf    = cl.Buffer(context, mf.READ_WRITE, 8*4*100)
 reduce_scratch = cl.LocalMemory(64*8*4)
 
@@ -333,6 +359,10 @@ def get_modelxyz():
   cl.enqueue_read_buffer(queue, model_buf, model).wait()
   return model
   
+def get_gridinds():
+  gridinds = np.empty((lengthL+lengthR,2,4), 'u1')
+  cl.enqueue_read_buffer(queue, gridinds_buf, gridinds).wait()
+  return gridinds
 
 def compute_normals(spot):
   assert spot=='LEFT' or spot=='RIGHT'
@@ -344,7 +374,7 @@ def compute_normals(spot):
   evt = kernel(queue, (R-L,B-T), None, normals_buf, xyz_buf,
         filt_buf, mask_buf, bounds, np.int32(offset))
   import main
-  if main.WAIT_COMPUTE: evt.wait()
+  #if main.WAIT_COMPUTE: evt.wait()
   return evt
 
 def compute_flatrot(mat):
@@ -373,6 +403,22 @@ def compute_lattice2(modelmat, modulo):
   if main.WAIT_COMPUTE: evt.wait()
   return evt
   
+def compute_gridinds(xfix, zfix, LW, LH, gridmin, gridmax):
+  # The model x and z coordinates from the lattice2 step are off by the
+  # translation component found in that stage. Pass them along here.
+  assert gridmin.shape == (4,)
+  assert gridmin.dtype == np.float32
+  assert gridmin[3] == 0
+  evt = program.gridinds_compute(queue, (lengthL+lengthR,), None,
+    gridinds_buf, model_buf,
+    np.float32(xfix), np.float32(zfix), 
+    np.float32(LW),   np.float32(LH), 
+    gridmin, gridmax)
+    
+  import main
+  if main.WAIT_COMPUTE: evt.wait()
+  return evt  
+
 def reduce_flatrot():
   sums = np.empty((8,4),'f')  
   evt = program.float4_sum(queue, (64*8,), (64,), 
