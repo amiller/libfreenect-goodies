@@ -16,19 +16,38 @@ per frame:
   - rect: 
 """
 
-RIGHT2LEFT = array([[-0.3895965 ,  0.56519378, -0.72716609, -0.52900905],
-       [-0.52247811,  0.51456726,  0.67988022,  0.41422039],
-       [ 0.75843994,  0.64480735,  0.09482782, -0.60428455],
-       [ 0.        ,  0.        ,  0.        ,  1.        ]])
+# This is for my setup at home!
+if 1:
+  RIGHT2LEFT = array([[-0.38304387,  0.56503284, -0.73076355, -0.53087166],
+         [-0.5339835 ,  0.51008241,  0.67429794,  0.41361691],
+         [ 0.75375007,  0.64850134,  0.10633425, -0.60915678],
+         [ 0.        ,  0.        ,  0.        ,  1.        ]])
 
+  # Use the mouse to find 4 points (x,y) on the corners of the table.
+  # These will define the first ROI.
+  boundptsL = np.array(((164,203),(334,146),(604,311),(310,435)))
+  boundptsR = np.array((( 33,287),(274,114),(478,195),(318,435)))
+else:
+  # These ones are for the table at school
+  RIGHT2LEFT = array([[ 0.0413361 ,  0.46774602, -0.88289436, -0.68350111],
+         [-0.39881273,  0.81792914,  0.41465632,  0.29259375],
+         [ 0.9160989 ,  0.3349702 ,  0.22035354, -0.6357524 ],
+         [ 0.        ,  0.        ,  0.        ,  1.        ]])
+  
+  
+
+  
+  
+  # Use the mouse to find 4 points (x,y) on the corners of the table.
+  # These will define the first ROI.
+  boundptsL = np.array(((132,260),(320,205),(528,287),(382,414)))
+  boundptsR = np.array(((141,269),(371,186),(520,264),(311,420)))
+  
 
 #RIGHT2LEFT = np.eye(4)
 
 
-# Use the mouse to find 4 points (x,y) on the corners of the table.
-# These will define the first ROI.
-boundptsL = np.array(((164,203),(334,146),(604,311),(310,435)))
-boundptsR = np.array(((33,287),(274,114),(478,195),(318,435)))
+
 
 import ctypes
 from ctypes import POINTER as PTR, c_byte, c_ushort, c_size_t

@@ -43,7 +43,8 @@ def get_update():
     if result.has_key('keyvote_grid'):
       found_keyframe = True
     if result.has_key('score'):
-      print result['score']
+      pass
+      #print result['score']
     keyframe_f = None
   
   return result
@@ -75,7 +76,8 @@ def _update_track(xyzf, LW, LH, bounds, meanx, meanz,
 def _update_keyframe(xyzf, LW, LH, bounds, meanx, meanz,
                      keyvote_grid, keycarve_grid, 
                      depthL, depthR, matL, matR, KK, 
-                     maskL, maskR, rectL, rectR):
+                     maskL, maskR, rectL, rectR,
+                     rgbL, rgbR):
   def from_rect(m,rect):
     (l,t),(r,b) = rect
     return m[t:b,l:r]
@@ -96,10 +98,19 @@ def _update_keyframe(xyzf, LW, LH, bounds, meanx, meanz,
     # Store the state
     prevstate =  cleancount, rectL, from_rect(depthL, rectL)
     
-    if cleancount == 20:
+    if cleancount == 6:
       prevstate = 0, rectL, from_rect(depthL, rectL)
       
       occH,vacH = carve.add_votes(xyzf, LW, LH, bounds, meanx, meanz)
+      
+      #ccL = colors.project_colors(depthL, rgbL, rectL)
+      # build the histogram
+      #bins_
+      # threshold the histogram
+      #cH = colors.choose_colors(*ccL)
+      
+      #ccR = colors.project_colors(depthR, rgbR, rectR)
+      
       
       keycarve_grid = np.maximum(keycarve_grid, vacH)        
       keyvote_grid = np.maximum(occH,keyvote_grid)
@@ -112,8 +123,20 @@ def _update_keyframe(xyzf, LW, LH, bounds, meanx, meanz,
     
       # Merge the grids
       keycarve_grid *= (occH<30)
+      
+      import scipy.ndimage
+      labels,nlabels = scipy.ndimage.label(keyvote_grid>=30,np.ones((3,3,3)))
+      for i in range(1,nlabels+1):
+        if not np.any(labels[:,0,:]==i):
+          keyvote_grid[labels==i] = 0
 
-      return dict(keyvote_grid=keyvote_grid, keycarve_grid=keycarve_grid)
+        
+      
+      result = dict(keyvote_grid=keyvote_grid, keycarve_grid=keycarve_grid)
+      result.update(_update_track(xyzf, LW, LH, bounds, meanx, meanz, 
+                        keyvote_grid, keycarve_grid,
+                        keyvote_grid, keycarve_grid))
+      return result
         
     else:
       return dict(score=score)

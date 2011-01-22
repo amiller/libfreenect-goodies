@@ -13,8 +13,7 @@ class CameraWindow(Window):
     self.lookat = np.array([0,0,0])
     self.upvec = np.array([0,1,0])
     self._mpos = None
-    self.clearcolor = [0,0,0,0]
-    
+
     @self.eventx
     def EVT_LEFT_DOWN(event):
       self._mpos = event.Position
@@ -39,18 +38,13 @@ class CameraWindow(Window):
       dy = event.WheelRotation
       self.zoomdist *= np.power(0.95, -dy)
       self.Refresh()
-    self._initOK = True
-
-  def on_draw(self):  
-    if not '_initOK' in dir(self): return
     
-    glClearColor(*self.clearcolor)
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    glEnable(GL_DEPTH_TEST)
-
+    
+  def set_camera(self):
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(60, 4/3., 0.3, 200)
+    #gluPerspective(60, 4/3., 0.3, 200)
+    glOrtho(-1.33,1.33,-1,1,0.3,200)
 
     glMatrixMode(GL_MODELVIEW)
     # flush that stack in case it's broken from earlier
@@ -59,19 +53,17 @@ class CameraWindow(Window):
     except:
       pass
 
-    glPushMatrix()
     glLoadIdentity()
-
     R = np.cross(self.upvec, [0,0,1])
     R /= np.sqrt(np.dot(R,R))
-
     glScale(self.zoomdist,self.zoomdist,1)
     glTranslate(0, 0,-2.5)
     glRotatef(self.rotangles[0], *R)
     glRotatef(self.rotangles[1], *self.upvec)
-
     glTranslate(*-self.lookat)
-
-    self._wrap('on_draw_axes')
+    
+  def on_draw(self):  
+    self.set_camera()
+    glClear(*self.clearcolor)
 
     

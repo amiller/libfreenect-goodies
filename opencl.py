@@ -79,6 +79,8 @@ def normal_maker(name, mat, matw, matr):
       return;
     }
 
+    //float nw = -(-dx*x+ -dy*y + (filt[index] + dx*x + dy*y)*filt[index]);
+    //float4  XYZW = (float4)(-dx, -dy, filt[index] + dx*x + dy*y, nw);
     float4  XYZW = (float4)(-dx, -dy, 1, -(-dx*x + -dy*y + filt[index]));
     float4 xXYZW = (float4)(  x,   y, filt[index], 1);
     float4  xyz = matmul3_%s ( XYZW);

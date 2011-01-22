@@ -3,7 +3,7 @@
 
 import numpy as np
 
-def grid_vertices(grid):
+def grid_vertices(grid,factor=1):
   """
   Given a boolean voxel grid, produce a list of vertices and indices 
   for drawing quads or line strips in opengl
@@ -20,7 +20,7 @@ def grid_vertices(grid):
   blocks = np.array(grid.nonzero()).transpose().reshape(-1,1,3)
   q = np.array(q).reshape(1,-1,3)
   vertices = (q + blocks).reshape(-1,3)
-  normals = np.tile(normal, (len(blocks),4)).reshape(-1,3)
+  normals = np.tile(normal, (len(blocks),4)).reshape(-1,3)*factor
   line_inds = np.arange(0,len(blocks)*6).reshape(-1,1)*4 + [0,1,1,2,2,3,3,0]
   quad_inds = np.arange(0,len(blocks)*6).reshape(-1,1)*4 + [0,1,2,3]
   

@@ -117,8 +117,16 @@ def flatrot_opencl(plane, guessmat=None, noshow=None):
   
   if not noshow:
     axes = expmap.rot2axis(mat)
-    
+  
     nwL,nwR = opencl.get_normals()
+    from main import LW
+    mm = np.eye(4)
+    mm[:3,:3] = mat
+    opencl.compute_lattice2(mm[:3,:4].astype('f'), LW)
+    _,_,_,face = np.rollaxis(opencl.get_modelxyz(),1)
+    cx,cz = np.rollaxis(np.frombuffer(np.array(face).data, dtype='i2').reshape(-1,2),1)
+    R,G,B = np.abs(cx),cx*0,np.abs(cz)
+    
     nL,wL = nwL[:,:,:3],nwL[:,:,3]
     nR,wR = nwR[:,:,:3],nwR[:,:,3]
     
@@ -131,7 +139,7 @@ def flatrot_opencl(plane, guessmat=None, noshow=None):
     X,Y,Z = np.rollaxis(np.vstack((nL.reshape(-1,3),nR.reshape(-1,3))),1)
     w = np.vstack((wL.reshape(-1,1),wR.reshape(-1,1)))
     
-    update(X,Y,Z, COLOR=(w+.7,w*0+.7,w*0+.7,w*0+.5), AXES=axes)
+    update(X,Y,Z, COLOR=(R,G,B,R+G+B+.5), AXES=axes)
     window.Refresh()
     pylab.waitforbuttonpress(0.001)
     
@@ -233,7 +241,7 @@ def meanshift_iter_opencl(mat, rect=((0,0),(640,480))):
   if np.isnan(dZ): dZ = 0
   return (dX,dY,dZ)
   
-def meanshift_iter_numpy(normals, mat, d):
+def meanshift_iter_numpy(normals, mat, d, weights):
   n = apply_rot(mat, normals)
   X,Y,Z = [n[:,:,i] for i in range(3)]
   cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
@@ -262,7 +270,7 @@ def mean_shift_optimize(normals, weights, r0=np.array([0,0,0]), rect=((0,0),(640
     cc = Y*Y+Z*Z, Z*Z+X*X, X*X+Y*Y
     return cc
     
-  while iters <= 4 and (derr > 0.0001):
+  while iters <= 40 and (derr > 0.0001):
     iters += 1
     
     if 0: # Compute the current error. Compare it to the previous
@@ -271,17 +279,17 @@ def mean_shift_optimize(normals, weights, r0=np.array([0,0,0]), rect=((0,0),(640
       derr = np.abs(perr-err)
       perr = err
     
-    if 1 and iters==4: # Compute and display the current rotated normals
+    if 1 or iters==4: # Compute and display the current rotated normals
       n = apply_rot(mat, normals)
       R,G,B = color_axis(n,d)
       #update(n[:,:,0],n[:,:,1],n[:,:,2], COLOR=(R+0.5,G+0.5,B+0.5,weights))
       update(normals[:,:,0],normals[:,:,1],normals[:,:,2], 
            COLOR=(R+0.5,G+0.5,B+0.5,weights), AXES=expmap.rot2axis(mat))
       window.Refresh()
-      pylab.waitforbuttonpress(0.001)
+      pylab.waitforbuttonpress(0.01)
       
-    #dX,dY,dZ = meanshift_iter_numpy(normals, mat, d)
-    dX,dY,dZ = meanshift_iter_opencl(mat, rect)
+    dX,dY,dZ = meanshift_iter_numpy(normals, mat, d, weights)
+    #dX,dY,dZ = meanshift_iter_opencl(mat, rect)
     m = expmap.euler2rot([dX, dY, dZ])
     mat = np.dot(m.transpose(), mat)
   cc = compute_cc(mat,normals)
@@ -381,12 +389,13 @@ def project(depth, u=None, v=None):
   return x*w, y*w, z*w
 
 def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
-  from visuals.normalswindow import NormalsWindow
+  from visuals.pointwindow import PointWindow
   global window
-  if not 'window' in globals(): window = NormalsWindow(size=(640,480))
+  if not 'window' in globals(): window = PointWindow(size=(640,480))
 
   @window.event
   def on_draw_axes():
+    
     # Draw some axes
     glLineWidth(3)
     glPushMatrix()
@@ -421,16 +430,15 @@ def update(X,Y,Z,UV=None,rgb=None,COLOR=None,AXES=None):
     R,G,B,A = COLOR
     color = np.vstack((R.flatten(), G.flatten(), B.flatten(), A.flatten())).transpose()
     color = color[mask,:]
+    
+  window.update_points(xyz)
 
-  window.UV = uv if UV else None
-  window.COLOR = color if COLOR else None
-  window.RGB = rgb
+  #window.UV = uv if UV else None
+  #window.COLOR = color if COLOR else None
+  #window.RGB = rgb
 
   
 def show_normals(depth, rect, win=7):
-   from visuals.normalswindow import NormalsWindow
-   global window
-   if not 'window' in globals(): window = NormalsWindow(size=(640,480))
    global axes_rotation
    axes_rotation = np.eye(4)
 
